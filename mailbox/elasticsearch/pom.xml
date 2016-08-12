@@ -163,6 +163,12 @@
                     <artifactId>apache-james-mailbox-api</artifactId>
                 </dependency>
                 <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>apache-james-mailbox-api</artifactId>
+                    <type>test-jar</type>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
                     <groupId>org.apache.james</groupId>
                     <artifactId>apache-james-mailbox-store</artifactId>
                 </dependency>
@@ -188,6 +194,11 @@
                 <dependency>
                     <groupId>com.fasterxml.jackson.datatype</groupId>
                     <artifactId>jackson-datatype-jdk8</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>com.github.steveash.guavate</groupId>
+                    <artifactId>guavate</artifactId>
+                    <version>1.0.0</version>
                 </dependency>
                 <dependency>
                     <groupId>com.google.guava</groupId>
@@ -224,12 +235,6 @@
                     <scope>test</scope>
                 </dependency>
                 <dependency>
-                    <groupId>org.apache.lucene</groupId>
-                    <artifactId>lucene-core</artifactId>
-                    <version>4.10.4</version>
-                    <scope>test</scope>
-                </dependency>
-                <dependency>
                     <groupId>org.assertj</groupId>
                     <artifactId>assertj-core</artifactId>
                     <version>${assertj-3.version}</version>
@@ -244,14 +249,19 @@
                 <dependency>
                     <groupId>org.elasticsearch</groupId>
                     <artifactId>elasticsearch</artifactId>
-                    <version>1.5.2</version>
+                    <version>2.2.1</version>
                 </dependency>
                 <dependency>
                     <groupId>org.elasticsearch</groupId>
                     <artifactId>elasticsearch</artifactId>
-                    <version>1.5.2</version>
+                    <version>2.2.1</version>
                     <scope>test</scope>
                     <type>test-jar</type>
+                </dependency>
+                <dependency>
+                    <groupId>org.mockito</groupId>
+                    <artifactId>mockito-core</artifactId>
+                    <scope>test</scope>
                 </dependency>
                 <dependency>
                     <groupId>org.slf4j</groupId>
@@ -270,19 +280,29 @@
             </dependencies>
         </profile>
         <profile>
-            <id>disable-animal-sniffer</id>
+            <id>animal-sniffer-java-8</id>
             <activation>
-                <jdk>[1.6,)</jdk>
+                <jdk>[1.8,)</jdk>
             </activation>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>animal-sniffer-maven-plugin</artifactId>
+                        <configuration>
+                            <signature>
+                                <groupId>org.codehaus.mojo.signature</groupId>
+                                <artifactId>java18</artifactId>
+                                <version>1.0</version>
+                            </signature>
+                        </configuration>
                         <executions>
                             <execution>
-                                <id>check_java_6</id>
-                                <phase>none</phase>
+                                <id>check_java_8</id>
+                                <phase>test</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
                             </execution>
                         </executions>
                     </plugin>

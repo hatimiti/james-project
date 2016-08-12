@@ -19,25 +19,50 @@
 
 package org.apache.james.mailbox.inmemory;
 
-import java.util.List;
+import java.util.EnumSet;
+
+import javax.inject.Inject;
 
 import org.apache.james.mailbox.MailboxPathLocker;
+import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
 import org.apache.james.mailbox.acl.MailboxACLResolver;
+import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.store.Authenticator;
+import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
 import org.apache.james.mailbox.store.StoreMailboxManager;
+import org.apache.james.mailbox.store.StoreMessageManager;
+import org.apache.james.mailbox.store.mail.model.Mailbox;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 
-import com.google.common.collect.Lists;
+public class InMemoryMailboxManager extends StoreMailboxManager {
 
-public class InMemoryMailboxManager extends StoreMailboxManager<InMemoryId> {
-
-    public InMemoryMailboxManager(Authenticator authenticator, MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver) {
-        super(new InMemoryMailboxSessionMapperFactory(), authenticator, locker, aclResolver, groupMembershipResolver);
+    @Inject
+    public InMemoryMailboxManager(MailboxSessionMapperFactory mailboxSessionMapperFactory, Authenticator authenticator, MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver, MessageParser messageParser) {
+        super(mailboxSessionMapperFactory, authenticator, locker, aclResolver, groupMembershipResolver, messageParser);
     }
 
     @Override
-    public List<Capabilities> getSupportedCapabilities() {
-        return Lists.newArrayList(Capabilities.Basic, Capabilities.Move);
+    public EnumSet<MailboxCapabilities> getSupportedMailboxCapabilities() {
+        return EnumSet.of(MailboxCapabilities.Move, MailboxCapabilities.UserFlag, MailboxCapabilities.Namespace, MailboxCapabilities.Annotation);
+    }
+    
+    @Override
+    public EnumSet<MessageCapabilities> getSupportedMessageCapabilities() {
+        return EnumSet.of(MessageCapabilities.Attachment);
+    }
 
+    @Override
+    protected StoreMessageManager createMessageManager(Mailbox mailbox, MailboxSession session) throws MailboxException {
+        return new InMemoryMessageManager(getMapperFactory(),
+            getMessageSearchIndex(),
+            getEventDispatcher(),
+            getLocker(),
+            mailbox,
+            getAclResolver(),
+            getGroupMembershipResolver(),
+            getQuotaManager(),
+            getQuotaRootResolver(),
+            getMessageParser());
     }
 }

@@ -18,6 +18,8 @@
  ****************************************************************/
 package org.apache.james.mailbox.jpa;
 
+import java.util.EnumSet;
+
 import org.apache.james.mailbox.MailboxPathLocker;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
@@ -29,21 +31,27 @@ import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.Authenticator;
 import org.apache.james.mailbox.store.StoreMailboxManager;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.apache.james.mailbox.store.transaction.TransactionalMapper;
 
 /**
  * JPA implementation of {@link StoreMailboxManager}
  */
-public abstract class JPAMailboxManager extends StoreMailboxManager<JPAId> {
+public abstract class JPAMailboxManager extends StoreMailboxManager {
     
     public JPAMailboxManager(JPAMailboxSessionMapperFactory mailboxSessionMapperFactory,
-            final Authenticator authenticator, MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver) {
-        super(mailboxSessionMapperFactory, authenticator, locker, aclResolver, groupMembershipResolver);
+            final Authenticator authenticator, MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver, MessageParser messageParser) {
+        super(mailboxSessionMapperFactory, authenticator, locker, aclResolver, groupMembershipResolver, messageParser);
     }
     
     @Override
-    protected Mailbox<JPAId> doCreateMailbox(MailboxPath path, MailboxSession session) throws MailboxException {
+    protected Mailbox doCreateMailbox(MailboxPath path, MailboxSession session) throws MailboxException {
         return  new JPAMailbox(path, randomUidValidity());
+    }
+
+    @Override
+    public EnumSet<MailboxCapabilities> getSupportedMailboxCapabilities() {
+        return EnumSet.of(MailboxCapabilities.UserFlag, MailboxCapabilities.Namespace);
     }
 
     /**

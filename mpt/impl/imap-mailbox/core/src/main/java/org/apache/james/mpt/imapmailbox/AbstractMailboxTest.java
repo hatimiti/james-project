@@ -27,8 +27,11 @@ import org.apache.james.mpt.imapmailbox.suite.FetchBodySection;
 import org.apache.james.mpt.imapmailbox.suite.FetchBodyStructure;
 import org.apache.james.mpt.imapmailbox.suite.FetchHeaders;
 import org.apache.james.mpt.imapmailbox.suite.Listing;
+import org.apache.james.mpt.imapmailbox.suite.MailboxAnnotation;
+import org.apache.james.mpt.imapmailbox.suite.Move;
 import org.apache.james.mpt.imapmailbox.suite.NonAuthenticatedState;
 import org.apache.james.mpt.imapmailbox.suite.PartialFetch;
+import org.apache.james.mpt.imapmailbox.suite.QuotaTest;
 import org.apache.james.mpt.imapmailbox.suite.Rename;
 import org.apache.james.mpt.imapmailbox.suite.Search;
 import org.apache.james.mpt.imapmailbox.suite.Security;
@@ -36,6 +39,7 @@ import org.apache.james.mpt.imapmailbox.suite.Select;
 import org.apache.james.mpt.imapmailbox.suite.SelectedInbox;
 import org.apache.james.mpt.imapmailbox.suite.SelectedState;
 import org.apache.james.mpt.imapmailbox.suite.UidSearch;
+import org.apache.james.mpt.imapmailbox.suite.UserFlagsSupport;
 import org.apache.onami.test.OnamiSuite;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite.SuiteClasses;
@@ -57,9 +61,13 @@ import org.junit.runners.Suite.SuiteClasses;
     Search.class,
     Security.class,
     Select.class,
+    QuotaTest.class,
+    UserFlagsSupport.class,
+    Move.class,
     SelectedInbox.class,
     SelectedState.class,
-    UidSearch.class
+    UidSearch.class,
+    MailboxAnnotation.class
 })
 public abstract class AbstractMailboxTest {
 

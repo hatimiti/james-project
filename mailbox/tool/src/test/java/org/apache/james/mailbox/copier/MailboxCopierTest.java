@@ -33,12 +33,12 @@ import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
 import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.BadCredentialsException;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxSessionMapperFactory;
 import org.apache.james.mailbox.mock.MockMailboxManager;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.Authenticator;
 import org.apache.james.mailbox.store.StoreMailboxManager;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.LoggerFactory;
@@ -101,10 +101,10 @@ public class MailboxCopierTest {
     @Test
     public void testMailboxCopy() throws MailboxException, IOException {
     	 if (srcMemMailboxManager instanceof StoreMailboxManager) {
-             ((StoreMailboxManager<?>) srcMemMailboxManager).init();
+             ((StoreMailboxManager) srcMemMailboxManager).init();
          }
          if (dstMemMailboxManager instanceof StoreMailboxManager) {
-             ((StoreMailboxManager<?>) dstMemMailboxManager).init();
+             ((StoreMailboxManager) dstMemMailboxManager).init();
          }
     
         srcMemMailboxManager = new MockMailboxManager(srcMemMailboxManager).getMockMailboxManager();
@@ -155,8 +155,9 @@ public class MailboxCopierTest {
     private MailboxManager newInMemoryMailboxManager() {
         MailboxACLResolver aclResolver = new UnionMailboxACLResolver();
         GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
+        MessageParser messageParser = new MessageParser();
 
-        return new StoreMailboxManager<InMemoryId>(
+        return new StoreMailboxManager(
             new InMemoryMailboxSessionMapperFactory(), 
             new Authenticator() {
                 public boolean isAuthentic(String userid, CharSequence passwd) {
@@ -164,7 +165,8 @@ public class MailboxCopierTest {
                 }
             },
             aclResolver,
-            groupMembershipResolver
+            groupMembershipResolver,
+            messageParser
             );
     
     }

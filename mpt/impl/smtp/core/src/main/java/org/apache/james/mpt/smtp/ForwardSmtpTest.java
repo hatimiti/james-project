@@ -18,7 +18,7 @@
  ****************************************************************/
 package org.apache.james.mpt.smtp;
 
-import static com.jayway.restassured.RestAssured.given;
+import static com.jayway.restassured.RestAssured.when;
 import static com.jayway.restassured.config.EncoderConfig.encoderConfig;
 import static com.jayway.restassured.config.RestAssuredConfig.newConfig;
 import static org.hamcrest.Matchers.equalTo;
@@ -28,10 +28,8 @@ import java.util.Locale;
 
 import javax.inject.Inject;
 
-import org.apache.james.mpt.api.SmtpHostSystem;
 import org.apache.james.mpt.script.AbstractSimpleScriptedTestProtocol;
-import org.apache.james.mpt.smtp.dns.InMemoryDNSService;
-import org.apache.james.rrt.api.RecipientRewriteTable;
+import org.apache.james.util.streams.SwarmGenericContainer;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -43,6 +41,7 @@ import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.net.InetAddresses;
 import com.jayway.restassured.RestAssured;
+import com.jayway.restassured.builder.RequestSpecBuilder;
 import com.jayway.restassured.http.ContentType;
 
 public class ForwardSmtpTest extends AbstractSimpleScriptedTestProtocol {
@@ -53,19 +52,14 @@ public class ForwardSmtpTest extends AbstractSimpleScriptedTestProtocol {
     public static final String PASSWORD = "secret";
 
     private final TemporaryFolder folder = new TemporaryFolder();
-    private final GenericContainer fakeSmtp = new GenericContainer("weave/rest-smtp-sink:latest");
+    private final GenericContainer fakeSmtp = new SwarmGenericContainer("weave/rest-smtp-sink:latest")
+            .withAffinityToContainer();
     
     @Rule
     public final RuleChain chain = RuleChain.outerRule(folder).around(fakeSmtp);
 
     @Inject
     private static SmtpHostSystem hostSystem;
-
-    @Inject
-    private static RecipientRewriteTable recipientRewriteTable;
-
-    @Inject
-    private static InMemoryDNSService dnsService;
 
     public ForwardSmtpTest() throws Exception {
         super(hostSystem, USER_AT_DOMAIN, PASSWORD, "/org/apache/james/smtp/scripts/");
@@ -75,26 +69,29 @@ public class ForwardSmtpTest extends AbstractSimpleScriptedTestProtocol {
     public void setUp() throws Exception {
         super.setUp();
         InetAddress containerIp = InetAddresses.forString(fakeSmtp.getContainerInfo().getNetworkSettings().getIpAddress());
-        dnsService.registerRecord("yopmail.com", new InetAddress[]{containerIp}, ImmutableList.of("yopmail.com"), ImmutableList.of());
-        recipientRewriteTable.addAddressMapping(USER, DOMAIN, "ray@yopmail.com");
+        hostSystem.getInMemoryDnsService()
+            .registerRecord("yopmail.com", new InetAddress[]{containerIp}, ImmutableList.of("yopmail.com"), ImmutableList.of());
+        hostSystem.addAddressMapping(USER, DOMAIN, "ray@yopmail.com");
 
-        RestAssured.port = Integer.valueOf("80");
-        RestAssured.baseURI = "http://" + containerIp.getHostAddress();
-        RestAssured.config = newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8));
+        RestAssured.requestSpecification = new RequestSpecBuilder()
+        		.setContentType(ContentType.JSON)
+        		.setAccept(ContentType.JSON)
+        		.setConfig(newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8)))
+        		.setPort(80)
+        		.setBaseUri("http://" + containerIp.getHostAddress())
+        		.build();
     }
 
     @Test
     public void forwardingAnEmailShouldWork() throws Exception {
         scriptTest("helo", Locale.US);
 
-        given()
-            .accept(ContentType.JSON)
-            .contentType(ContentType.JSON)
-        .when()
+        when()
             .get("/api/email")
         .then()
             .statusCode(200)
             .body("[0].from", equalTo("matthieu@yopmail.com"))
-            .body("[0].subject", equalTo("test"));
+            .body("[0].subject", equalTo("test"))
+            .body("[0].text", equalTo("content"));
     }
 }

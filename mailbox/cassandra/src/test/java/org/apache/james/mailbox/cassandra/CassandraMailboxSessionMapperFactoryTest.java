@@ -23,10 +23,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import org.apache.james.backends.cassandra.CassandraCluster;
+import org.apache.james.backends.cassandra.init.CassandraModuleComposite;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.cassandra.mail.CassandraModSeqProvider;
 import org.apache.james.mailbox.cassandra.mail.CassandraUidProvider;
-import org.apache.james.mailbox.cassandra.modules.CassandraUidAndModSeqModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraModSeqModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraUidModule;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
 import org.apache.james.mailbox.store.mail.MessageMapper;
 import org.apache.james.mailbox.store.mail.ModSeqProvider;
@@ -42,7 +44,8 @@ import org.slf4j.LoggerFactory;
  * 
  */
 public class CassandraMailboxSessionMapperFactoryTest {
-    private static final CassandraCluster CLUSTER = CassandraCluster.create(new CassandraUidAndModSeqModule());
+    private static final CassandraCluster CLUSTER = CassandraCluster.create(
+            new CassandraModuleComposite(new CassandraModSeqModule(), new CassandraUidModule()));
     private final static Logger LOG = LoggerFactory.getLogger(CassandraMailboxSessionMapperFactoryTest.class);
 
     @Before
@@ -60,7 +63,7 @@ public class CassandraMailboxSessionMapperFactoryTest {
         LOG.info("createMessageMapper");
         MailboxSession session = null;
         CassandraMailboxSessionMapperFactory instance = new CassandraMailboxSessionMapperFactory(null, null, null, null);
-        MessageMapper<CassandraId> messageMapper = instance.createMessageMapper(session);
+        MessageMapper messageMapper = instance.createMessageMapper(session);
         assertNotNull(messageMapper);
         assertTrue(messageMapper instanceof MessageMapper);
     }
@@ -74,7 +77,7 @@ public class CassandraMailboxSessionMapperFactoryTest {
         LOG.info("createMailboxMapper");
         MailboxSession session = null;
         CassandraMailboxSessionMapperFactory instance = new CassandraMailboxSessionMapperFactory(null, null, null, null);
-        MailboxMapper<CassandraId> mailboxMapper = instance.createMailboxMapper(session);
+        MailboxMapper mailboxMapper = instance.createMailboxMapper(session);
         assertNotNull(mailboxMapper);
         assertTrue(mailboxMapper instanceof MailboxMapper);
     }
@@ -100,9 +103,9 @@ public class CassandraMailboxSessionMapperFactoryTest {
     @Test
     public void testGetModSeqProvider() {
         LOG.info("getModSeqProvider");
-        ModSeqProvider<CassandraId> expResult = new CassandraModSeqProvider(CLUSTER.getConf());
+        ModSeqProvider expResult = new CassandraModSeqProvider(CLUSTER.getConf());
         CassandraMailboxSessionMapperFactory instance = new CassandraMailboxSessionMapperFactory(null, expResult, null, null);
-        ModSeqProvider<CassandraId> result = instance.getModSeqProvider();
+        ModSeqProvider result = instance.getModSeqProvider();
         assertEquals(expResult, result);
     }
 
@@ -113,9 +116,9 @@ public class CassandraMailboxSessionMapperFactoryTest {
     @Test
     public void testGetUidProvider() {
         LOG.info("getUidProvider");
-        UidProvider<CassandraId> expResult = new CassandraUidProvider(CLUSTER.getConf());
+        UidProvider expResult = new CassandraUidProvider(CLUSTER.getConf());
         CassandraMailboxSessionMapperFactory instance = new CassandraMailboxSessionMapperFactory((CassandraUidProvider) expResult, null, null, null);
-        UidProvider<CassandraId> result = instance.getUidProvider();
+        UidProvider result = instance.getUidProvider();
         assertEquals(expResult, result);
     }
 }

@@ -36,6 +36,8 @@ import org.apache.james.jmap.model.GetMailboxesRequest;
 import org.apache.james.jmap.model.GetMailboxesResponse;
 import org.apache.james.jmap.model.mailbox.Mailbox;
 import org.apache.james.jmap.model.mailbox.Role;
+import org.apache.james.jmap.model.mailbox.SortOrder;
+import org.apache.james.jmap.utils.MailboxUtils;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
@@ -44,12 +46,12 @@ import org.apache.james.mailbox.acl.MailboxACLResolver;
 import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
 import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxSessionMapperFactory;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.MockAuthenticator;
 import org.apache.james.mailbox.store.SimpleMailboxSession;
 import org.apache.james.mailbox.store.StoreMailboxManager;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.assertj.core.groups.Tuple;
 import org.junit.Before;
 import org.junit.Test;
@@ -64,10 +66,11 @@ public class GetMailboxesMethodTest {
     private static final String USERNAME = "username@domain.tld";
     private static final String USERNAME2 = "username2@domain.tld";
 
-    private StoreMailboxManager<InMemoryId> mailboxManager;
-    private GetMailboxesMethod<InMemoryId> getMailboxesMethod;
+    private StoreMailboxManager mailboxManager;
+    private GetMailboxesMethod getMailboxesMethod;
     private ClientId clientId;
     private InMemoryMailboxSessionMapperFactory mailboxMapperFactory;
+    private MailboxUtils mailboxUtils;
 
     @Before
     public void setup() throws Exception {
@@ -75,10 +78,12 @@ public class GetMailboxesMethodTest {
         mailboxMapperFactory = new InMemoryMailboxSessionMapperFactory();
         MailboxACLResolver aclResolver = new UnionMailboxACLResolver();
         GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
-        mailboxManager = new StoreMailboxManager<>(mailboxMapperFactory, new MockAuthenticator(), aclResolver, groupMembershipResolver);
+        MessageParser messageParser = new MessageParser();
+        mailboxManager = new StoreMailboxManager(mailboxMapperFactory, new MockAuthenticator(), aclResolver, groupMembershipResolver, messageParser);
         mailboxManager.init();
+        mailboxUtils = new MailboxUtils(mailboxManager, mailboxMapperFactory);
 
-        getMailboxesMethod = new GetMailboxesMethod<>(mailboxManager, mailboxMapperFactory);
+        getMailboxesMethod = new GetMailboxesMethod(mailboxManager, mailboxUtils);
     }
 
     @Test
@@ -106,7 +111,7 @@ public class GetMailboxesMethodTest {
             .thenReturn(ImmutableList.of(new MailboxPath("namespace", "user", "name")));
         when(mockedMailboxManager.getMailbox(any(), any()))
             .thenThrow(new MailboxException());
-        GetMailboxesMethod<InMemoryId> testee = new GetMailboxesMethod<>(mockedMailboxManager, mailboxMapperFactory);
+        GetMailboxesMethod testee = new GetMailboxesMethod(mockedMailboxManager, mailboxUtils);
         
         GetMailboxesRequest getMailboxesRequest = GetMailboxesRequest.builder()
                 .build();
@@ -189,7 +194,7 @@ public class GetMailboxesMethodTest {
                 .extracting(GetMailboxesResponse.class::cast)
                 .flatExtracting(GetMailboxesResponse::getList)
                 .extracting(Mailbox::getSortOrder)
-                .containsOnly(10);
+                .containsOnly(SortOrder.of(10));
     }
 
     @Test
@@ -210,7 +215,7 @@ public class GetMailboxesMethodTest {
                 .extracting(GetMailboxesResponse.class::cast)
                 .flatExtracting(GetMailboxesResponse::getList)
                 .extracting(Mailbox::getSortOrder)
-                .containsOnly(1000);
+                .containsOnly(SortOrder.of(1000));
     }
 
     @Test
@@ -231,7 +236,7 @@ public class GetMailboxesMethodTest {
                 .extracting(GetMailboxesResponse.class::cast)
                 .flatExtracting(GetMailboxesResponse::getList)
                 .extracting(Mailbox::getSortOrder)
-                .containsOnly(10);
+                .containsOnly(SortOrder.of(10));
     }
 
     @Test
@@ -259,14 +264,14 @@ public class GetMailboxesMethodTest {
                 .flatExtracting(GetMailboxesResponse::getList)
                 .extracting(Mailbox::getName, Mailbox::getSortOrder)
                 .containsExactly(
-                        Tuple.tuple("INBOX", 10),
-                        Tuple.tuple("ARCHIVE", 20),
-                        Tuple.tuple("DRAFTS", 30),
-                        Tuple.tuple("OUTBOX", 40),
-                        Tuple.tuple("SENT", 50),
-                        Tuple.tuple("TRASH", 60),
-                        Tuple.tuple("SPAM", 70),
-                        Tuple.tuple("TEMPLATES", 80));
+                        Tuple.tuple("INBOX", SortOrder.of(10)),
+                        Tuple.tuple("ARCHIVE", SortOrder.of(20)),
+                        Tuple.tuple("DRAFTS", SortOrder.of(30)),
+                        Tuple.tuple("OUTBOX", SortOrder.of(40)),
+                        Tuple.tuple("SENT", SortOrder.of(50)),
+                        Tuple.tuple("TRASH", SortOrder.of(60)),
+                        Tuple.tuple("SPAM", SortOrder.of(70)),
+                        Tuple.tuple("TEMPLATES", SortOrder.of(80)));
     }
 
     @Test

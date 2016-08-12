@@ -24,6 +24,7 @@ import java.util.Optional;
 import javax.servlet.Filter;
 import javax.servlet.Servlet;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -42,6 +43,7 @@ public class Configuration {
     public static class Builder {
         
         private static final Range<Integer> VALID_PORT_RANGE = Range.closed(1, 65535);
+        private static final String TEMPLATE_LEVEL1 = "/*";
 
         private final ImmutableMap.Builder<String, Object> mappings;
         private final ImmutableListMultimap.Builder<String, Object> filters;
@@ -103,15 +105,28 @@ public class Configuration {
         }
         
         public ServletBinder serve(String mappingUrl) {
-            Preconditions.checkNotNull(mappingUrl);
-            Preconditions.checkArgument(!mappingUrl.trim().isEmpty());
+            urlPreconditions(mappingUrl);
             return new ServletBinder(mappingUrl);
         }
         
+        public ServletBinder serveAsOneLevelTemplate(String mappingUrl) {
+            urlPreconditions(mappingUrl);
+            return new ServletBinder(mappingUrl + TEMPLATE_LEVEL1);
+        }
+        
         public FilterBinder filter(String mappingUrl) {
+            urlPreconditions(mappingUrl);
+            return new FilterBinder(mappingUrl);
+        }
+        
+        public FilterBinder filterAsOneLevelTemplate(String mappingUrl) {
+            urlPreconditions(mappingUrl);
+            return new FilterBinder(mappingUrl + TEMPLATE_LEVEL1);
+        }
+
+        private void urlPreconditions(String mappingUrl) {
             Preconditions.checkNotNull(mappingUrl);
             Preconditions.checkArgument(!mappingUrl.trim().isEmpty());
-            return new FilterBinder(mappingUrl);
         }
 
         public Builder port(int port) {
@@ -171,7 +186,7 @@ public class Configuration {
     
     @Override
     public String toString() {
-        return com.google.common.base.Objects.toStringHelper(getClass())
+        return MoreObjects.toStringHelper(getClass())
                 .add("mappings", mappings)
                 .add("filters", filters)
                 .add("port", port)

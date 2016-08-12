@@ -51,7 +51,6 @@ import org.apache.james.mailbox.exception.ReadOnlyException;
 import org.apache.james.mailbox.exception.UnsupportedRightException;
 import org.apache.james.mailbox.model.MailboxACL;
 import org.apache.james.mailbox.model.MailboxACL.MailboxACLRights;
-import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.MessageMetaData;
 import org.apache.james.mailbox.model.MessageRange;
 import org.apache.james.mailbox.model.MessageResult.FetchGroup;
@@ -62,12 +61,14 @@ import org.apache.james.mailbox.model.UpdatedFlags;
 import org.apache.james.mailbox.quota.QuotaManager;
 import org.apache.james.mailbox.quota.QuotaRootResolver;
 import org.apache.james.mailbox.store.event.MailboxEventDispatcher;
+import org.apache.james.mailbox.store.mail.AttachmentMapper;
 import org.apache.james.mailbox.store.mail.MessageMapper;
 import org.apache.james.mailbox.store.mail.MessageMapper.FetchType;
-import org.apache.james.mailbox.store.mail.MessageMapperFactory;
-import org.apache.james.mailbox.store.mail.model.MailboxId;
+import org.apache.james.mailbox.store.mail.model.Attachment;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.store.mail.model.MessageAttachment;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
 import org.apache.james.mailbox.store.mail.model.impl.SimpleMailboxMessage;
 import org.apache.james.mailbox.store.quota.QuotaChecker;
@@ -83,9 +84,10 @@ import org.apache.james.mime4j.stream.EntityState;
 import org.apache.james.mime4j.stream.MimeConfig;
 import org.apache.james.mime4j.stream.MimeTokenStream;
 import org.apache.james.mime4j.stream.RecursionMode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Iterators;
+import com.google.common.collect.ImmutableList;
 
 /**
  * Base class for {@link org.apache.james.mailbox.MessageManager}
@@ -98,7 +100,7 @@ import com.google.common.collect.Iterators;
  * 
  * 
  */
-public class StoreMessageManager<Id extends MailboxId> implements org.apache.james.mailbox.MessageManager {
+public class StoreMessageManager implements org.apache.james.mailbox.MessageManager {
 
     /**
      * The minimal Permanent flags the {@link MessageManager} must support. <br>
@@ -116,13 +118,16 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
         MINIMAL_PERMANET_FLAGS.add(Flags.Flag.SEEN);
     }
 
-    private final Mailbox<Id> mailbox;
+    private static final Logger LOG = LoggerFactory.getLogger(StoreMessageManager.class);
 
-    private final MailboxEventDispatcher<Id> dispatcher;
 
-    private final MessageMapperFactory<Id> mapperFactory;
+    private final Mailbox mailbox;
 
-    private final MessageSearchIndex<Id> index;
+    private final MailboxEventDispatcher dispatcher;
+
+    private final MailboxSessionMapperFactory mapperFactory;
+
+    private final MessageSearchIndex index;
 
     private final MailboxACLResolver aclResolver;
 
@@ -134,10 +139,12 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
 
     private final MailboxPathLocker locker;
 
+    private final MessageParser messageParser;
+
     private int fetchBatchSize;
 
-    public StoreMessageManager(MessageMapperFactory<Id> mapperFactory, MessageSearchIndex<Id> index, MailboxEventDispatcher<Id> dispatcher, MailboxPathLocker locker, Mailbox<Id> mailbox, MailboxACLResolver aclResolver,
-            final GroupMembershipResolver groupMembershipResolver, QuotaManager quotaManager, QuotaRootResolver quotaRootResolver) throws MailboxException {
+    public StoreMessageManager(MailboxSessionMapperFactory mapperFactory, MessageSearchIndex index, MailboxEventDispatcher dispatcher, MailboxPathLocker locker, Mailbox mailbox, MailboxACLResolver aclResolver,
+            final GroupMembershipResolver groupMembershipResolver, QuotaManager quotaManager, QuotaRootResolver quotaRootResolver, MessageParser messageParser) throws MailboxException {
         this.mailbox = mailbox;
         this.dispatcher = dispatcher;
         this.mapperFactory = mapperFactory;
@@ -147,6 +154,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
         this.groupMembershipResolver = groupMembershipResolver;
         this.quotaManager = quotaManager;
         this.quotaRootResolver = quotaRootResolver;
+        this.messageParser = messageParser;
     }
 
     public void setFetchBatchSize(int fetchBatchSize) {
@@ -167,7 +175,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      * 
      * @return dispatcher
      */
-    protected MailboxEventDispatcher<Id> getDispatcher() {
+    protected MailboxEventDispatcher getDispatcher() {
         return dispatcher;
     }
 
@@ -178,7 +186,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      * @throws MailboxException
      */
 
-    public Mailbox<Id> getMailboxEntity() throws MailboxException {
+    public Mailbox getMailboxEntity() throws MailboxException {
         return mailbox;
     }
 
@@ -240,7 +248,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      */
     public Iterator<Long> expunge(MessageRange set, MailboxSession mailboxSession) throws MailboxException {
         if (!isWriteable(mailboxSession)) {
-            throw new ReadOnlyException(new StoreMailboxPath<Id>(getMailboxEntity()), mailboxSession.getPathDelimiter());
+            throw new ReadOnlyException(new StoreMailboxPath(getMailboxEntity()), mailboxSession.getPathDelimiter());
         }
         Map<Long, MessageMetaData> uids = deleteMarkedInMailbox(set, mailboxSession);
 
@@ -262,7 +270,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
         SharedFileInputStream contentIn = null;
 
         if (!isWriteable(mailboxSession)) {
-            throw new ReadOnlyException(new StoreMailboxPath<Id>(getMailboxEntity()), mailboxSession.getPathDelimiter());
+            throw new ReadOnlyException(new StoreMailboxPath(getMailboxEntity()), mailboxSession.getPathDelimiter());
         }
 
         try {
@@ -375,15 +383,16 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
             contentIn = new SharedFileInputStream(file);
             final int size = (int) file.length();
 
-            final MailboxMessage<Id> message = createMessage(internalDate, size, bodyStartOctet, contentIn, flags, propertyBuilder);
+            final List<MessageAttachment> attachments = extractAttachments(contentIn);
+            final MailboxMessage message = createMessage(internalDate, size, bodyStartOctet, contentIn, flags, propertyBuilder, attachments);
 
-            new QuotaChecker<Id>(quotaManager, quotaRootResolver, mailbox).tryAddition(1, size);
+            new QuotaChecker(quotaManager, quotaRootResolver, mailbox).tryAddition(1, size);
 
-            return locker.executeWithLock(mailboxSession, new StoreMailboxPath<Id>(getMailboxEntity()), new MailboxPathLocker.LockAwareExecution<Long>() {
+            return locker.executeWithLock(mailboxSession, new StoreMailboxPath(getMailboxEntity()), new MailboxPathLocker.LockAwareExecution<Long>() {
 
                 @Override
                 public Long execute() throws MailboxException {
-                    MessageMetaData data = appendMessageToStore(message, mailboxSession);
+                    MessageMetaData data = appendMessageToStore(message, attachments, mailboxSession);
 
                     SortedMap<Long, MessageMetaData> uids = new TreeMap<Long, MessageMetaData>();
                     uids.put(data.getUid(), data);
@@ -414,6 +423,15 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
 
     }
 
+    private List<MessageAttachment> extractAttachments(SharedFileInputStream contentIn) {
+        try {
+            return messageParser.retrieveAttachments(contentIn);
+        } catch (Exception e) {
+            LOG.warn("Error while parsing mail's attachments: " + e.getMessage(), e);
+            return ImmutableList.of();
+        }
+    }
+
     /**
      * Create a new {@link MailboxMessage} for the given data
      * 
@@ -422,11 +440,12 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      * @param bodyStartOctet
      * @param content
      * @param flags
+     * @param attachments 
      * @return membership
      * @throws MailboxException
      */
-    protected MailboxMessage<Id> createMessage(Date internalDate, int size, int bodyStartOctet, SharedInputStream content, Flags flags, PropertyBuilder propertyBuilder) throws MailboxException {
-        return new SimpleMailboxMessage<Id>(internalDate, size, bodyStartOctet, content, flags, propertyBuilder, getMailboxEntity().getMailboxId());
+    protected MailboxMessage createMessage(Date internalDate, int size, int bodyStartOctet, SharedInputStream content, Flags flags, PropertyBuilder propertyBuilder, List<MessageAttachment> attachments) throws MailboxException {
+        return new SimpleMailboxMessage(internalDate, size, bodyStartOctet, content, flags, propertyBuilder, getMailboxEntity().getMailboxId(), attachments);
     }
 
     /**
@@ -532,13 +551,13 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
     public Map<Long, Flags> setFlags(final Flags flags, final FlagsUpdateMode flagsUpdateMode, final MessageRange set, MailboxSession mailboxSession) throws MailboxException {
 
         if (!isWriteable(mailboxSession)) {
-            throw new ReadOnlyException(new StoreMailboxPath<Id>(getMailboxEntity()), mailboxSession.getPathDelimiter());
+            throw new ReadOnlyException(new StoreMailboxPath(getMailboxEntity()), mailboxSession.getPathDelimiter());
         }
         final SortedMap<Long, Flags> newFlagsByUid = new TreeMap<Long, Flags>();
 
         trimFlags(flags, mailboxSession);
 
-        final MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(mailboxSession);
+        final MessageMapper messageMapper = mapperFactory.getMessageMapper(mailboxSession);
 
         Iterator<UpdatedFlags> it = messageMapper.execute(new Mapper.Transaction<Iterator<UpdatedFlags>>() {
 
@@ -568,12 +587,12 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      * @param session
      * @throws MailboxException
      */
-    public List<MessageRange> copyTo(final MessageRange set, final StoreMessageManager<Id> toMailbox, final MailboxSession session) throws MailboxException {
+    public List<MessageRange> copyTo(final MessageRange set, final StoreMessageManager toMailbox, final MailboxSession session) throws MailboxException {
         if (!toMailbox.isWriteable(session)) {
-            throw new ReadOnlyException(new StoreMailboxPath<Id>(toMailbox.getMailboxEntity()), session.getPathDelimiter());
+            throw new ReadOnlyException(new StoreMailboxPath(toMailbox.getMailboxEntity()), session.getPathDelimiter());
         }
 
-        return locker.executeWithLock(session, new StoreMailboxPath<Id>(toMailbox.getMailboxEntity()), new MailboxPathLocker.LockAwareExecution<List<MessageRange>>() {
+        return locker.executeWithLock(session, new StoreMailboxPath(toMailbox.getMailboxEntity()), new MailboxPathLocker.LockAwareExecution<List<MessageRange>>() {
 
             @Override
             public List<MessageRange> execute() throws MailboxException {
@@ -592,16 +611,16 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      * @param session
      * @throws MailboxException
      */
-    public List<MessageRange> moveTo(final MessageRange set, final StoreMessageManager<Id> toMailbox, final MailboxSession session) throws MailboxException {
+    public List<MessageRange> moveTo(final MessageRange set, final StoreMessageManager toMailbox, final MailboxSession session) throws MailboxException {
         if (!isWriteable(session)) {
-            throw new ReadOnlyException(new StoreMailboxPath<Id>(getMailboxEntity()), session.getPathDelimiter());
+            throw new ReadOnlyException(new StoreMailboxPath(getMailboxEntity()), session.getPathDelimiter());
         }
         if (!toMailbox.isWriteable(session)) {
-            throw new ReadOnlyException(new StoreMailboxPath<Id>(toMailbox.getMailboxEntity()), session.getPathDelimiter());
+            throw new ReadOnlyException(new StoreMailboxPath(toMailbox.getMailboxEntity()), session.getPathDelimiter());
         }
 
         //TODO lock the from mailbox too, in a non-deadlocking manner - how?
-        return locker.executeWithLock(session, new StoreMailboxPath<Id>(toMailbox.getMailboxEntity()), new MailboxPathLocker.LockAwareExecution<List<MessageRange>>() {
+        return locker.executeWithLock(session, new StoreMailboxPath(toMailbox.getMailboxEntity()), new MailboxPathLocker.LockAwareExecution<List<MessageRange>>() {
 
             @Override
             public List<MessageRange> execute() throws MailboxException {
@@ -612,12 +631,18 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
         }, true);
     }
 
-    protected MessageMetaData appendMessageToStore(final MailboxMessage<Id> message, MailboxSession session) throws MailboxException {
-        final MessageMapper<Id> mapper = mapperFactory.getMessageMapper(session);
+    protected MessageMetaData appendMessageToStore(final MailboxMessage message, final List<MessageAttachment> messageAttachments, MailboxSession session) throws MailboxException {
+        final MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
+        final AttachmentMapper attachmentMapper = mapperFactory.getAttachmentMapper(session);
         return mapperFactory.getMessageMapper(session).execute(new Mapper.Transaction<MessageMetaData>() {
 
             public MessageMetaData run() throws MailboxException {
-                return mapper.add(getMailboxEntity(), message);
+                ImmutableList.Builder<Attachment> attachments = ImmutableList.builder();
+                for (MessageAttachment attachment : messageAttachments) {
+                    attachments.add(attachment.getAttachment());
+                }
+                attachmentMapper.storeAttachments(attachments.build());
+                return messageMapper.add(getMailboxEntity(), message);
             }
 
         });
@@ -636,8 +661,8 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      *      org.apache.james.mailbox.MailboxSession)
      */
     public MessageResultIterator getMessages(MessageRange set, FetchGroup fetchGroup, MailboxSession mailboxSession) throws MailboxException {
-        final MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(mailboxSession);
-        return new StoreMessageResultIterator<Id>(messageMapper, mailbox, set, fetchBatchSize, fetchGroup);
+        final MessageMapper messageMapper = mapperFactory.getMessageMapper(mailboxSession);
+        return new StoreMessageResultIterator(messageMapper, mailbox, set, fetchBatchSize, fetchGroup);
     }
 
     /**
@@ -652,10 +677,10 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
     protected List<Long> recent(final boolean reset, MailboxSession mailboxSession) throws MailboxException {
         if (reset) {
             if (!isWriteable(mailboxSession)) {
-                throw new ReadOnlyException(new StoreMailboxPath<Id>(getMailboxEntity()), mailboxSession.getPathDelimiter());
+                throw new ReadOnlyException(new StoreMailboxPath(getMailboxEntity()), mailboxSession.getPathDelimiter());
             }
         }
-        final MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(mailboxSession);
+        final MessageMapper messageMapper = mapperFactory.getMessageMapper(mailboxSession);
 
         return messageMapper.execute(new Mapper.Transaction<List<Long>>() {
 
@@ -680,7 +705,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
 
     protected Map<Long, MessageMetaData> deleteMarkedInMailbox(final MessageRange range, MailboxSession session) throws MailboxException {
 
-        final MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(session);
+        final MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
 
         return messageMapper.execute(new Mapper.Transaction<Map<Long, MessageMetaData>>() {
 
@@ -699,13 +724,13 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
         return index.search(mailboxSession, getMailboxEntity(), query);
     }
 
-    private Iterator<MessageMetaData> copy(Iterator<MailboxMessage<Id>> originalRows, MailboxSession session) throws MailboxException {
+    private Iterator<MessageMetaData> copy(Iterator<MailboxMessage> originalRows, MailboxSession session) throws MailboxException {
         final List<MessageMetaData> copiedRows = new ArrayList<MessageMetaData>();
-        final MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(session);
-        QuotaChecker<Id> quotaChecker = new QuotaChecker<Id>(quotaManager, quotaRootResolver, mailbox);
+        final MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
+        QuotaChecker quotaChecker = new QuotaChecker(quotaManager, quotaRootResolver, mailbox);
 
         while (originalRows.hasNext()) {
-            final MailboxMessage<Id> originalMessage = originalRows.next();
+            final MailboxMessage originalMessage = originalRows.next();
             quotaChecker.tryAddition(1, originalMessage.getFullContentOctets());
             MessageMetaData data = messageMapper.execute(new Mapper.Transaction<MessageMetaData>() {
                 public MessageMetaData run() throws MailboxException {
@@ -719,13 +744,13 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
         return copiedRows.iterator();
     }
 
-    private MoveResult move(Iterator<MailboxMessage<Id>> originalRows, MailboxSession session) throws MailboxException {
+    private MoveResult move(Iterator<MailboxMessage> originalRows, MailboxSession session) throws MailboxException {
         final List<MessageMetaData> movedRows = new ArrayList<MessageMetaData>();
         final List<MessageMetaData> originalRowsCopy = new ArrayList<MessageMetaData>();
-        final MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(session);
+        final MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
 
         while (originalRows.hasNext()) {
-            final MailboxMessage<Id> originalMessage = originalRows.next();
+            final MailboxMessage originalMessage = originalRows.next();
             originalRowsCopy.add(new SimpleMessageMetaData(originalMessage));
             MessageMetaData data = messageMapper.execute(new Mapper.Transaction<MessageMetaData>() {
                 public MessageMetaData run() throws MailboxException {
@@ -739,20 +764,20 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
 	}
 
 
-    private SortedMap<Long, MessageMetaData> copy(MessageRange set, StoreMessageManager<Id> to, MailboxSession session) throws MailboxException {
-        Iterator<MailboxMessage<Id>> originalRows = retrieveOriginalRows(set, session);
+    private SortedMap<Long, MessageMetaData> copy(MessageRange set, StoreMessageManager to, MailboxSession session) throws MailboxException {
+        Iterator<MailboxMessage> originalRows = retrieveOriginalRows(set, session);
         return collectMetadata(to.copy(originalRows, session));
     }
 
-    private SortedMap<Long, MessageMetaData> move(MessageRange set, StoreMessageManager<Id> to, MailboxSession session) throws MailboxException {
-        Iterator<MailboxMessage<Id>> originalRows = retrieveOriginalRows(set, session);
+    private SortedMap<Long, MessageMetaData> move(MessageRange set, StoreMessageManager to, MailboxSession session) throws MailboxException {
+        Iterator<MailboxMessage> originalRows = retrieveOriginalRows(set, session);
         MoveResult moveResult = to.move(originalRows, session);
         dispatcher.expunged(session, collectMetadata(moveResult.getOriginalMessages()), getMailboxEntity());
         return collectMetadata(moveResult.getMovedMessages());
     }
 
-    private Iterator<MailboxMessage<Id>> retrieveOriginalRows(MessageRange set, MailboxSession session) throws MailboxException {
-        MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(session);
+    private Iterator<MailboxMessage> retrieveOriginalRows(MessageRange set, MailboxSession session) throws MailboxException {
+        MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
         return messageMapper.findInMailbox(mailbox, set, FetchType.Full, -1);
     }
 
@@ -772,7 +797,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      * @throws MailboxException
      */
     protected long countUnseenMessagesInMailbox(MailboxSession session) throws MailboxException {
-        MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(session);
+        MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
         return messageMapper.countUnseenMessagesInMailbox(getMailboxEntity());
     }
 
@@ -784,7 +809,7 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
      * @throws MailboxException
      */
     protected Long findFirstUnseenMessageUid(MailboxSession session) throws MailboxException {
-        MessageMapper<Id> messageMapper = mapperFactory.getMessageMapper(session);
+        MessageMapper messageMapper = mapperFactory.getMessageMapper(session);
         return messageMapper.findFirstUnseenMessageUid(getMailboxEntity());
     }
 
@@ -808,5 +833,4 @@ public class StoreMessageManager<Id extends MailboxId> implements org.apache.jam
     protected MailboxACL getResolvedMailboxACL(MailboxSession mailboxSession) throws UnsupportedRightException {
         return aclResolver.applyGlobalACL(mailbox.getACL(), new GroupFolderResolver(mailboxSession).isGroupFolder(mailbox));
     }
-
 }

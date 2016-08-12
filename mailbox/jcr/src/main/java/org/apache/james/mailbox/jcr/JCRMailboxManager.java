@@ -18,6 +18,8 @@
  ****************************************************************/
 package org.apache.james.mailbox.jcr;
 
+import java.util.EnumSet;
+
 import org.apache.james.mailbox.MailboxPathLocker;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
@@ -30,6 +32,7 @@ import org.apache.james.mailbox.store.JVMMailboxPathLocker;
 import org.apache.james.mailbox.store.StoreMailboxManager;
 import org.apache.james.mailbox.store.StoreMessageManager;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,21 +40,25 @@ import org.slf4j.LoggerFactory;
  * JCR implementation of a MailboxManager
  * 
  */
-public class JCRMailboxManager extends StoreMailboxManager<JCRId> implements JCRImapConstants {
+public class JCRMailboxManager extends StoreMailboxManager implements JCRImapConstants {
 
     private final Logger logger = LoggerFactory.getLogger(JCRMailboxManager.class);
     
-    public JCRMailboxManager(JCRMailboxSessionMapperFactory mapperFactory, Authenticator authenticator, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver) {
-	    this(mapperFactory, authenticator, new JVMMailboxPathLocker(), aclResolver, groupMembershipResolver);
+    public JCRMailboxManager(JCRMailboxSessionMapperFactory mapperFactory, Authenticator authenticator, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver, MessageParser messageParser) {
+	    this(mapperFactory, authenticator, new JVMMailboxPathLocker(), aclResolver, groupMembershipResolver, messageParser);
     }
 
-    public JCRMailboxManager(JCRMailboxSessionMapperFactory mapperFactory, Authenticator authenticator, MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver) {
-        super(mapperFactory, authenticator, locker, aclResolver, groupMembershipResolver);
+    public JCRMailboxManager(JCRMailboxSessionMapperFactory mapperFactory, Authenticator authenticator, MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver, MessageParser messageParser) {
+        super(mapperFactory, authenticator, locker, aclResolver, groupMembershipResolver, messageParser);
     }
 
+    @Override
+    public EnumSet<MailboxCapabilities> getSupportedMailboxCapabilities() {
+        return EnumSet.of(MailboxCapabilities.Namespace);
+    }
     
     @Override
-    protected StoreMessageManager<JCRId> createMessageManager(Mailbox<JCRId> mailboxEntity, MailboxSession session) throws MailboxException{
+    protected StoreMessageManager createMessageManager(Mailbox mailboxEntity, MailboxSession session) throws MailboxException{
         return new JCRMessageManager(getMapperFactory(),
             getMessageSearchIndex(),
             getEventDispatcher(),
@@ -61,11 +68,12 @@ public class JCRMailboxManager extends StoreMailboxManager<JCRId> implements JCR
             getGroupMembershipResolver(),
             logger,
             getQuotaManager(),
-            getQuotaRootResolver());
+            getQuotaRootResolver(),
+            getMessageParser());
     }
 
     @Override
-    protected Mailbox<JCRId> doCreateMailbox(MailboxPath path, MailboxSession session) throws MailboxException {
+    protected Mailbox doCreateMailbox(MailboxPath path, MailboxSession session) throws MailboxException {
         return new org.apache.james.mailbox.jcr.mail.model.JCRMailbox(path, randomUidValidity(), logger);
     }
 

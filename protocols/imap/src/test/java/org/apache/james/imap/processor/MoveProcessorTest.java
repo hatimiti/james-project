@@ -21,6 +21,7 @@ package org.apache.james.imap.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -40,6 +41,7 @@ import org.apache.james.imap.api.process.SelectedMailbox;
 import org.apache.james.imap.message.request.CopyRequest;
 import org.apache.james.imap.message.request.MoveRequest;
 import org.apache.james.mailbox.MailboxManager;
+import org.apache.james.mailbox.MailboxManager.MailboxCapabilities;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.exception.MailboxException;
@@ -75,9 +77,9 @@ public class MoveProcessorTest {
         mockImapSession = mock(ImapSession.class);
         mockMailboxSession = mock(MailboxSession.class);
 
-        when(mockMailboxManager.getSupportedCapabilities()).thenReturn(Lists.newArrayList(MailboxManager.Capabilities.Move, MailboxManager.Capabilities.Basic));
+        when(mockMailboxManager.hasCapability(eq(MailboxCapabilities.Move))).thenReturn(true);
         testee = new MoveProcessor(mockNextProcessor, mockMailboxManager, mockStatusResponseFactory);
-        verify(mockMailboxManager).getSupportedCapabilities();
+        verify(mockMailboxManager).hasCapability(MailboxCapabilities.Move);
     }
 
     @Test
@@ -87,7 +89,7 @@ public class MoveProcessorTest {
 
     @Test
     public void getImplementedCapabilitiesShouldNotContainMoveWhenUnSupportedByMailboxManager() {
-        when(mockMailboxManager.getSupportedCapabilities()).thenReturn(Lists.newArrayList(MailboxManager.Capabilities.Basic));
+        when(mockMailboxManager.hasCapability(eq(MailboxCapabilities.Move))).thenReturn(false);
         assertThat(new MoveProcessor(mockNextProcessor, mockMailboxManager, mockStatusResponseFactory).getImplementedCapabilities(null)).isEmpty();
     }
 

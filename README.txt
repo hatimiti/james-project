@@ -84,6 +84,13 @@ as it is needed by the container that will run James.
 - SHA1 (optional): is the given git SHA1 of the james-project repository to build or trunk if none.
 - -s option: given tests will not be played while building. Not specifying means play tests.
 
+Some tests needs a DOCKER_HOST environment variable in order to be played, they will be ignored if you don't provide this variable.
+If you wish to play them, you may use a command like the following (depending on your docker configuration):
+$ docker run --env DOCKER_HOST=tcp://172.17.0.1:2376 -v $PWD/.m2:/root/.m2 -v $PWD:/origin -v $PWD/dockerfiles/run/spring/destination:/destination -t james/project SHA1
+
+If you are using a a fresh installation of Docker, your DOCKER_HOST should be unix:///var/run/docker.sock and you should mount this socket as a volume:
+$ docker run --env DOCKER_HOST=unix:///var/run/docker.sock -v /var/run/docker.sock:/var/run/docker.sock -v $PWD/.m2:/root/.m2 -v $PWD:/origin -v $PWD/dockerfiles/run/spring/destination:/destination -t james/project SHA1
+
 
 Howto run James in Docker
 =========================
@@ -115,7 +122,7 @@ $ docker run -d --name=cassandra cassandra:2.2.3
 
 You need a running **ElasticSearch** in docker. To achieve this run :
 ```bash
-$ docker run -d --name=elasticsearch elasticsearch:1.5.2
+$ docker run -d --name=elasticsearch elasticsearch:2.2.1
 ```
 
 We need to provide the key we will use for TLS. For obvious reasons, this is not provided in this git.
@@ -138,6 +145,7 @@ $ docker run --hostname HOSTNAME -p "25:25" -p 80:80 -p "110:110" -p "143:143" -
 Where :
 - HOSTNAME: is the hostname you want to give to your James container. This DNS entry will be used to send mail to your James server.
 
+You can add an optional port binding to port 8000, to expose the webadmin server. Please note that users are not authenticated on webadmin server, thus you should avoid exposing it in production.
 
 Run James with Java 6 + Spring + JPA
 ====================================

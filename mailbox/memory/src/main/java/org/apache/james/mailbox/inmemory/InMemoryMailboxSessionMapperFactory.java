@@ -21,35 +21,42 @@ package org.apache.james.mailbox.inmemory;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.SubscriptionException;
+import org.apache.james.mailbox.inmemory.mail.InMemoryAnnotationMapper;
+import org.apache.james.mailbox.inmemory.mail.InMemoryAttachmentMapper;
 import org.apache.james.mailbox.inmemory.mail.InMemoryMailboxMapper;
 import org.apache.james.mailbox.inmemory.mail.InMemoryMessageMapper;
 import org.apache.james.mailbox.inmemory.mail.InMemoryModSeqProvider;
 import org.apache.james.mailbox.inmemory.mail.InMemoryUidProvider;
 import org.apache.james.mailbox.inmemory.user.InMemorySubscriptionMapper;
+import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
+import org.apache.james.mailbox.store.mail.AnnotationMapper;
+import org.apache.james.mailbox.store.mail.AttachmentMapper;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
 import org.apache.james.mailbox.store.mail.MessageMapper;
 import org.apache.james.mailbox.store.user.SubscriptionMapper;
 
-public class InMemoryMailboxSessionMapperFactory extends MailboxSessionMapperFactory<InMemoryId> {
+public class InMemoryMailboxSessionMapperFactory extends MailboxSessionMapperFactory {
 
-    private final MailboxMapper<InMemoryId> mailboxMapper;
-    private final MessageMapper<InMemoryId> messageMapper;
+    private final MailboxMapper mailboxMapper;
+    private final MessageMapper messageMapper;
     private final SubscriptionMapper subscriptionMapper;
+    private final AttachmentMapper attachmentMapper;
     
     public InMemoryMailboxSessionMapperFactory() {
         mailboxMapper = new InMemoryMailboxMapper();
         messageMapper = new InMemoryMessageMapper(null, new InMemoryUidProvider(), new InMemoryModSeqProvider());
         subscriptionMapper = new InMemorySubscriptionMapper();
+        attachmentMapper = new InMemoryAttachmentMapper();
     }
     
     @Override
-    public MailboxMapper<InMemoryId> createMailboxMapper(MailboxSession session) throws MailboxException {
+    public MailboxMapper createMailboxMapper(MailboxSession session) throws MailboxException {
         return mailboxMapper;
     }
 
     @Override
-    public MessageMapper<InMemoryId> createMessageMapper(MailboxSession session) throws MailboxException {
+    public MessageMapper createMessageMapper(MailboxSession session) throws MailboxException {
         return messageMapper;
     }
 
@@ -57,11 +64,22 @@ public class InMemoryMailboxSessionMapperFactory extends MailboxSessionMapperFac
     public SubscriptionMapper createSubscriptionMapper(MailboxSession session) throws SubscriptionException {
         return subscriptionMapper;
     }
+    
+    @Override
+    public AttachmentMapper createAttachmentMapper(MailboxSession session) throws MailboxException {
+        return attachmentMapper;
+    }
 
     public void deleteAll() throws MailboxException {
         ((InMemoryMailboxMapper) mailboxMapper).deleteAll();
         ((InMemoryMessageMapper) messageMapper).deleteAll();
         ((InMemorySubscriptionMapper) subscriptionMapper).deleteAll();
+    }
+
+    @Override
+    public AnnotationMapper createAnnotationMapper(MailboxId mailboxId, MailboxSession session)
+            throws MailboxException {
+        return new InMemoryAnnotationMapper((InMemoryId)mailboxId);
     }
 
 }

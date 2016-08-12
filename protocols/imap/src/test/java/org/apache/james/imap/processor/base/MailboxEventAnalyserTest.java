@@ -29,9 +29,11 @@ import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.mail.Flags;
 
@@ -53,6 +55,7 @@ import org.apache.james.mailbox.model.MailboxACL.MailboxACLCommand;
 import org.apache.james.mailbox.model.MailboxACL.MailboxACLEntryKey;
 import org.apache.james.mailbox.model.MailboxACL.MailboxACLRight;
 import org.apache.james.mailbox.model.MailboxACL.MailboxACLRights;
+import org.apache.james.mailbox.model.MailboxAnnotation;
 import org.apache.james.mailbox.model.MailboxMetaData;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.MailboxQuery;
@@ -66,8 +69,6 @@ import org.apache.james.mailbox.model.UpdatedFlags;
 import org.junit.Test;
 import org.slf4j.Logger;
 
-import com.google.common.collect.Lists;
-
 public class MailboxEventAnalyserTest {
 
     private static final long BASE_SESSION_ID = 99;
@@ -77,8 +78,22 @@ public class MailboxEventAnalyserTest {
     private final MailboxManager mockManager = new MailboxManager() {
 
         @Override
-        public List<Capabilities> getSupportedCapabilities() {
-            return Lists.newArrayList(Capabilities.Basic);
+        public EnumSet<MailboxCapabilities> getSupportedMailboxCapabilities() {
+            return EnumSet.noneOf(MailboxCapabilities.class);
+        }
+
+        @Override
+        public EnumSet<MessageCapabilities> getSupportedMessageCapabilities() {
+            return EnumSet.noneOf(MessageCapabilities.class);
+        }
+        
+        @Override
+        public EnumSet<SearchCapabilities> getSupportedSearchCapabilities() {
+            return EnumSet.noneOf(SearchCapabilities.class);
+        }
+        
+        public boolean hasCapability(MailboxCapabilities capability) {
+            return false;
         }
 
         public void removeListener(MailboxPath mailboxPath, MailboxListener listner, MailboxSession session) throws MailboxException {
@@ -305,6 +320,7 @@ public class MailboxEventAnalyserTest {
                     throw new UnsupportedOperationException("Not implemented");
 
                 }
+                
             };
         }
         
@@ -357,6 +373,24 @@ public class MailboxEventAnalyserTest {
                 throws MailboxException {
             throw new NotImplementedException("Not implemented");
         }
+
+        @Override
+        public List<MailboxAnnotation> getAllAnnotations(MailboxPath mailboxPath, MailboxSession session)
+                throws MailboxException {
+            return null;
+        }
+
+        @Override
+        public List<MailboxAnnotation> getAnnotationsByKeys(MailboxPath mailboxPath, MailboxSession session,
+                Set<String> keys) throws MailboxException {
+            return null;
+        }
+
+        @Override
+        public void updateAnnotations(MailboxPath mailboxPath, MailboxSession session,
+                List<MailboxAnnotation> mailboxAnnotations) throws MailboxException {
+        }
+
     };
     
     private final class MyMailboxSession implements MailboxSession {

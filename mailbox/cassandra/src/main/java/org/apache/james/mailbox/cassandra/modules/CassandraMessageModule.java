@@ -19,17 +19,6 @@
 
 package org.apache.james.mailbox.cassandra.modules;
 
-import com.datastax.driver.core.schemabuilder.SchemaBuilder;
-import org.apache.james.backends.cassandra.components.CassandraIndex;
-import org.apache.james.backends.cassandra.components.CassandraModule;
-import org.apache.james.backends.cassandra.components.CassandraTable;
-import org.apache.james.backends.cassandra.components.CassandraType;
-import org.apache.james.mailbox.cassandra.table.CassandraMessageTable;
-
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-
 import static com.datastax.driver.core.DataType.bigint;
 import static com.datastax.driver.core.DataType.blob;
 import static com.datastax.driver.core.DataType.cboolean;
@@ -38,6 +27,18 @@ import static com.datastax.driver.core.DataType.set;
 import static com.datastax.driver.core.DataType.text;
 import static com.datastax.driver.core.DataType.timestamp;
 import static com.datastax.driver.core.DataType.timeuuid;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import org.apache.james.backends.cassandra.components.CassandraIndex;
+import org.apache.james.backends.cassandra.components.CassandraModule;
+import org.apache.james.backends.cassandra.components.CassandraTable;
+import org.apache.james.backends.cassandra.components.CassandraType;
+import org.apache.james.mailbox.cassandra.table.CassandraMessageTable;
+
+import com.datastax.driver.core.schemabuilder.SchemaBuilder;
 
 public class CassandraMessageModule implements CassandraModule {
 
@@ -68,6 +69,7 @@ public class CassandraMessageModule implements CassandraModule {
                     .addColumn(CassandraMessageTable.Flag.SEEN, cboolean())
                     .addColumn(CassandraMessageTable.Flag.USER, cboolean())
                     .addColumn(CassandraMessageTable.Flag.USER_FLAGS, set(text()))
+                    .addUDTListColumn(CassandraMessageTable.ATTACHMENTS, SchemaBuilder.frozen(CassandraMessageTable.ATTACHMENTS))
                     .addUDTListColumn(CassandraMessageTable.PROPERTIES, SchemaBuilder.frozen(CassandraMessageTable.PROPERTIES))));
         index = Arrays.asList(
             new CassandraIndex(
@@ -85,13 +87,20 @@ public class CassandraMessageModule implements CassandraModule {
                     .ifNotExists()
                     .onTable(CassandraMessageTable.TABLE_NAME)
                     .andColumn(CassandraMessageTable.Flag.DELETED)));
-        types = Collections.singletonList(
+        types = Arrays.asList(
             new CassandraType(CassandraMessageTable.PROPERTIES,
                 SchemaBuilder.createType(CassandraMessageTable.PROPERTIES)
                     .ifNotExists()
                     .addColumn(CassandraMessageTable.Properties.NAMESPACE, text())
                     .addColumn(CassandraMessageTable.Properties.NAME, text())
-                    .addColumn(CassandraMessageTable.Properties.VALUE, text())));
+                    .addColumn(CassandraMessageTable.Properties.VALUE, text())),
+            new CassandraType(CassandraMessageTable.ATTACHMENTS,
+                    SchemaBuilder.createType(CassandraMessageTable.ATTACHMENTS)
+                        .ifNotExists()
+                        .addColumn(CassandraMessageTable.Attachments.ID, text())
+                        .addColumn(CassandraMessageTable.Attachments.NAME, text())
+                        .addColumn(CassandraMessageTable.Attachments.CID, text())
+                        .addColumn(CassandraMessageTable.Attachments.IS_INLINE, cboolean())));
     }
 
     @Override

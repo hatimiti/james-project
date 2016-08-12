@@ -29,8 +29,6 @@
     </parent>
 
     <artifactId>james-server-util-java8</artifactId>
-    <packaging>bundle</packaging>
-
     <name>Apache James :: Server :: Common Utilities :: Java 8</name>
 
     <profiles>
@@ -130,8 +128,16 @@
             </activation>
             <dependencies>
                 <dependency>
+                    <groupId>com.github.steveash.guavate</groupId>
+                    <artifactId>guavate</artifactId>
+                </dependency>
+                <dependency>
                     <groupId>com.google.guava</groupId>
                     <artifactId>guava</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>javax.inject</groupId>
+                    <artifactId>javax.inject</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>junit</groupId>
@@ -142,6 +148,11 @@
                     <groupId>org.assertj</groupId>
                     <artifactId>assertj-core</artifactId>
                     <version>3.2.0</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.testcontainers</groupId>
+                    <artifactId>testcontainers</artifactId>
                     <scope>test</scope>
                 </dependency>
             </dependencies>
@@ -159,19 +170,29 @@
             </build>
         </profile>
         <profile>
-            <id>disable-animal-sniffer</id>
+            <id>animal-sniffer-java-8</id>
             <activation>
-                <jdk>[1.6,)</jdk>
+                <jdk>[1.8,)</jdk>
             </activation>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>animal-sniffer-maven-plugin</artifactId>
+                        <configuration>
+                            <signature>
+                                <groupId>org.codehaus.mojo.signature</groupId>
+                                <artifactId>java18</artifactId>
+                                <version>1.0</version>
+                            </signature>
+                        </configuration>
                         <executions>
                             <execution>
-                                <id>check_java_6</id>
-                                <phase>none</phase>
+                                <id>check_java_8</id>
+                                <phase>test</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
                             </execution>
                         </executions>
                     </plugin>

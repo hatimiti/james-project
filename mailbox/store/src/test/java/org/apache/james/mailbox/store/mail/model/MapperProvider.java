@@ -20,17 +20,26 @@
 package org.apache.james.mailbox.store.mail.model;
 
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.store.mail.AnnotationMapper;
+import org.apache.james.mailbox.store.mail.AttachmentMapper;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
 import org.apache.james.mailbox.store.mail.MessageMapper;
 
-public interface MapperProvider<Id extends MailboxId> {
-    MailboxMapper<Id> createMailboxMapper() throws MailboxException;
+public interface MapperProvider {
+    MailboxMapper createMailboxMapper() throws MailboxException;
 
-    MessageMapper<Id> createMessageMapper() throws MailboxException;
+    MessageMapper createMessageMapper() throws MailboxException;
 
-    Id generateId();
+    AttachmentMapper createAttachmentMapper() throws MailboxException;
+
+    AnnotationMapper createAnnotationMapper() throws MailboxException;
+
+    MailboxId generateId();
 
     void clearMapper() throws MailboxException;
 
     void ensureMapperPrepared() throws MailboxException;
+
+    boolean supportPartialAttachmentFetch();
 }

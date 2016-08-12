@@ -58,7 +58,7 @@
         <module>karaf/features</module>
         <module>karaf/integration</module>
 
-        <module>container/cassandra-guice</module>
+        <module>container/guice</module>
         <module>container/cli</module>
         <module>container/core</module>
         <module>container/filesystem-api</module>
@@ -84,6 +84,7 @@
         <module>data/data-jcr</module>
         <module>data/data-jdbc</module>
         <module>data/data-jmap</module>
+        <module>data/data-jmap-cassandra</module>
         <module>data/data-file</module>
         <module>data/data-ldap</module>
         <module>data/data-hbase</module>
@@ -103,6 +104,8 @@
         <module>queue/queue-file</module>
         <module>queue/queue-jms</module>
         <module>queue/queue-activemq</module>
+        <module>protocols/webadmin</module>
+        <module>protocols/webadmin-integration-test</module>
     </modules>
 
     <distributionManagement>
@@ -116,7 +119,7 @@
         <productName>Apache-James Mail Server</productName>
 
         <activemq.version>5.7.0</activemq.version>
-        <camel.version>2.10.3</camel.version>
+        <camel.version>2.13.4</camel.version>
         <derby.version>10.9.1.0</derby.version>
         <hadoop.version>1.1.1</hadoop.version>
         <hbase.version>0.94.27</hbase.version>
@@ -167,8 +170,8 @@
         <geronimo-annotation-spec.version>1.0.1</geronimo-annotation-spec.version>
         <spring-osgi-extender.version>1.2.1</spring-osgi-extender.version>
         <org.osgi.core.version>5.0.0</org.osgi.core.version>
-        <guava.version>16.0</guava.version>
-        <cucumber.version>1.2.3</cucumber.version>
+        <guava.version>18.0</guava.version>
+        <cucumber.version>1.2.4</cucumber.version>
 
         <!-- karaf dependencies -->
         <exam.version>2.6.0</exam.version>
@@ -186,6 +189,8 @@
         <cassandra-unit.version>2.1.9.2</cassandra-unit.version>
         <assertj-1.version>1.7.1</assertj-1.version>
         <assertj-3.version>3.3.0</assertj-3.version>
+        <testcontainers-version>1.0.2</testcontainers-version>
+        <guavate.version>1.0.0</guavate.version>
     </properties>
 
     <dependencyManagement>
@@ -217,6 +222,17 @@
                 <version>${project.version}</version>
                 <type>test-jar</type>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>james-server-guice-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>james-server-guice-common</artifactId>
+                <version>${project.version}</version>
+                <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.apache.james</groupId>
@@ -526,11 +542,28 @@
             </dependency>
             <dependency>
                 <groupId>org.apache.james</groupId>
+                <artifactId>james-server-data-jmap</artifactId>
+                <scope>test</scope>
+                <type>test-jar</type>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>james-server-data-jmap-cassandra</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
                 <artifactId>james-server-data-jcr</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.james</groupId>
+                <artifactId>james-server-data-memory</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
                 <artifactId>james-server-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -552,6 +585,11 @@
                 <version>${project.version}</version>
                 <scope>test</scope>
                 <type>test-jar</type>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>james-server-memory-guice</artifactId>
+                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.james</groupId>
@@ -561,6 +599,17 @@
             <dependency>
                 <groupId>org.apache.james</groupId>
                 <artifactId>james-server-jmap-integration-testing</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>james-server-jmap-integration-testing</artifactId>
+                <type>test-jar</type>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>james-server-webadmin</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -574,6 +623,12 @@
                 <groupId>org.apache.james</groupId>
                 <artifactId>apache-james-mailbox-memory</artifactId>
                 <version>${mailbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>apache-james-mailbox-memory</artifactId>
+                <version>${mailbox.version}</version>
+                <type>test-jar</type>
                 <scope>test</scope>
             </dependency>
             <dependency>
@@ -596,6 +651,12 @@
                 <groupId>org.apache.james</groupId>
                 <artifactId>apache-james-mailbox-api</artifactId>
                 <version>${mailbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>apache-james-mailbox-api</artifactId>
+                <version>${mailbox.version}</version>
+                <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.apache.james</groupId>
@@ -704,6 +765,12 @@
                 <groupId>org.apache.james</groupId>
                 <artifactId>james-server-util-java8</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.james</groupId>
+                <artifactId>james-server-util-java8</artifactId>
+                <version>${project.version}</version>
+                <type>test-jar</type>
             </dependency>
 
             <dependency>
@@ -839,6 +906,11 @@
                 <version>${geronimo-activation-spec.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.jason-goodwin</groupId>
+                <artifactId>better-monads</artifactId>
+                <version>0.4.0</version>
+            </dependency>
+            <dependency>
                 <groupId>commons-daemon</groupId>
                 <artifactId>commons-daemon</artifactId>
                 <version>${commons-daemon.version}</version>
@@ -852,6 +924,11 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-collections4</artifactId>
                 <version>4.0</version>
+            </dependency>
+	    <dependency>
+                <groupId>org.hamcrest</groupId>
+                <artifactId>java-hamcrest</artifactId>
+                <version>2.0.0.0</version>
             </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
@@ -985,6 +1062,11 @@
                 <artifactId>jmock</artifactId>
                 <version>${jmock.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.xenei</groupId>
+                <artifactId>junit-contracts</artifactId>
+                <version>0.1.5</version>
             </dependency>
             <dependency>
                 <groupId>pl.pragmatists</groupId>
@@ -1211,6 +1293,11 @@
             </dependency>
 
             <dependency>
+                <groupId>com.github.steveash.guavate</groupId>
+                <artifactId>guavate</artifactId>
+                <version>${guavate.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
                 <version>${guava.version}</version>
@@ -1304,6 +1391,11 @@
                 <version>4.0</version>
             </dependency>
             <dependency>
+                <groupId>com.nurkiewicz.asyncretry</groupId>
+                <artifactId>asyncretry</artifactId>
+                <version>0.0.7</version>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.onami.lifecycle</groupId>
                 <artifactId>org.apache.onami.lifecycle.jsr250</artifactId>
                 <version>0.2.0-SNAPSHOT</version>
@@ -1361,6 +1453,11 @@
             </dependency>
             <dependency>
                 <groupId>info.cukes</groupId>
+                <artifactId>cucumber-guice</artifactId>
+                <version>${cucumber.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>info.cukes</groupId>
                 <artifactId>cucumber-java</artifactId>
                 <version>${cucumber.version}</version>
             </dependency>
@@ -1373,7 +1470,6 @@
                 <groupId>info.cukes</groupId>
                 <artifactId>cucumber-picocontainer</artifactId>
                 <version>${cucumber.version}</version>
-                <scope>test</scope>
             </dependency>
             <dependency>
                 <groupId>com.github.fge</groupId>
@@ -1424,6 +1520,11 @@
                 <groupId>org.eclipse.jetty</groupId>
                 <artifactId>jetty-servlet</artifactId>
                 <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers</artifactId>
+                <version>${testcontainers-version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

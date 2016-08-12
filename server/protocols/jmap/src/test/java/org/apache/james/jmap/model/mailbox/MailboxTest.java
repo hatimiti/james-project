@@ -23,8 +23,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Optional;
 
-import org.apache.james.jmap.model.mailbox.Mailbox;
-import org.apache.james.jmap.model.mailbox.Role;
 import org.junit.Test;
 
 public class MailboxTest {
@@ -68,27 +66,9 @@ public class MailboxTest {
             .build();
     }
 
-    @Test(expected=IllegalStateException.class)
-    public void buildShouldThrowWhenSortOrderIsNegative() {
-        Mailbox.builder()
-            .id("id")
-            .name("name")
-            .sortOrder(-1)
-            .build();
-    }
-
-    @Test(expected=IllegalStateException.class)
-    public void buildShouldThrowWhenSortOrderIsGreaterThanMax() {
-        Mailbox.builder()
-            .id("id")
-            .name("name")
-            .sortOrder(Double.valueOf(Math.pow(2, 31)).intValue())
-            .build();
-    }
-
     @Test
     public void buildShouldWork() {
-        Mailbox expectedMailbox = new Mailbox("id", "name", Optional.of("parentId"), Optional.of(Role.DRAFTS), 123,
+        Mailbox expectedMailbox = new Mailbox("id", "name", Optional.of("parentId"), Optional.of(Role.DRAFTS), SortOrder.of(123),
                 true, true, true, true, true, true, true, 456, 789, 741, 852);
 
         Mailbox mailbox = Mailbox.builder()
@@ -96,7 +76,7 @@ public class MailboxTest {
             .name("name")
             .parentId("parentId")
             .role(Optional.of(Role.DRAFTS))
-            .sortOrder(123)
+            .sortOrder(SortOrder.of(123))
             .mustBeOnlyMailbox(true)
             .mayReadItems(true)
             .mayAddItems(true)
@@ -111,5 +91,15 @@ public class MailboxTest {
             .build();
 
         assertThat(mailbox).isEqualToComparingFieldByField(expectedMailbox);
+    }
+
+    @Test
+    public void parentIdDefaultValueIsEmpty() {
+        Mailbox mailbox = Mailbox.builder()
+            .id("id")
+            .name("name")
+            .build();
+
+        assertThat(mailbox.getParentId()).isEmpty();
     }
 }

@@ -44,17 +44,17 @@ git checkout $SHA1
 # Compilation
 
 if [ "$SKIPTESTS" = "skipTests" ]; then
-   mvn package -DskipTests -Pcassandra,exclude-lucene,with-assembly,with-jetm
+   mvn package -DskipTests -Pcassandra,elasticsearch,inmemory,exclude-lucene,with-assembly,with-jetm
 else
-   mvn package -Pcassandra,exclude-lucene,with-assembly,with-jetm
+   mvn package -Pcassandra,inmemory,elasticsearch,exclude-lucene,with-assembly,with-jetm
 fi
 
 # Retrieve result
 
 if [ $? -eq 0 ]; then
    cp server/app/target/james-server-app-*-app.zip $DESTINATION
-   cp server/container/cassandra-guice/target/james-server-cassandra-guice-*-SNAPSHOT.jar $DESTINATION
-   cp -r server/container/cassandra-guice/target/james-server-cassandra-guice-*-SNAPSHOT.lib $DESTINATION
+   cp server/container/guice/cassandra-guice/target/james-server-cassandra-guice-*-SNAPSHOT.jar $DESTINATION
+   cp -r server/container/guice/cassandra-guice/target/james-server-cassandra-guice-*-SNAPSHOT.lib $DESTINATION
    cp server/container/cli/target/james-server-cli-*.jar $DESTINATION
    cp -r server/container/cli/target/james-server-cli-*.lib $DESTINATION
 fi

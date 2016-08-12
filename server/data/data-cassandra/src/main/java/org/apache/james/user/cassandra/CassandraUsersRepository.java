@@ -39,6 +39,7 @@ import javax.inject.Inject;
 
 import org.apache.james.backends.cassandra.utils.CassandraConstants;
 import org.apache.james.backends.cassandra.utils.CassandraUtils;
+import org.apache.james.user.api.AlreadyExistInUsersRepositoryException;
 import org.apache.james.user.api.UsersRepositoryException;
 import org.apache.james.user.api.model.User;
 import org.apache.james.user.lib.AbstractUsersRepository;
@@ -59,11 +60,6 @@ public class CassandraUsersRepository extends AbstractUsersRepository {
     @Resource
     public void setSession(Session session) {
         this.session = session;
-    }
-
-    @Override
-    public boolean supportVirtualHosting() {
-        return true;
     }
     
     @Override
@@ -160,7 +156,12 @@ public class CassandraUsersRepository extends AbstractUsersRepository {
             .getBool(CassandraConstants.LIGHTWEIGHT_TRANSACTION_APPLIED);
 
         if (!executed) {
-            throw new UsersRepositoryException("User with username " + username + " already exist!");
+            throw new AlreadyExistInUsersRepositoryException("User with username " + username + " already exist!");
         }
+    }
+
+    @Override
+    protected boolean getDefaultVirtualHostingValue() {
+        return true;
     }
 }

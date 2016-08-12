@@ -19,7 +19,9 @@
 
 package org.apache.james.mailbox;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.james.mailbox.exception.BadCredentialsException;
 import org.apache.james.mailbox.exception.MailboxException;
@@ -27,6 +29,7 @@ import org.apache.james.mailbox.exception.MailboxExistsException;
 import org.apache.james.mailbox.exception.MailboxNotFoundException;
 import org.apache.james.mailbox.exception.UnsupportedRightException;
 import org.apache.james.mailbox.model.MailboxACL;
+import org.apache.james.mailbox.model.MailboxAnnotation;
 import org.apache.james.mailbox.model.MailboxMetaData;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.MailboxQuery;
@@ -69,13 +72,36 @@ import org.slf4j.Logger;
 
 public interface MailboxManager extends RequestAware, MailboxListenerSupport {
 
-    enum Capabilities {
-        Basic,
-        Move
+    enum MailboxCapabilities {
+        Annotation,
+        Move,
+        Namespace,
+        UserFlag
     }
 
-    List<Capabilities> getSupportedCapabilities();
+    EnumSet<MailboxCapabilities> getSupportedMailboxCapabilities();
 
+    boolean hasCapability(MailboxCapabilities capability);
+
+    enum MessageCapabilities {
+        Attachment
+    }
+
+    EnumSet<MessageCapabilities> getSupportedMessageCapabilities();
+
+    enum SearchCapabilities {
+        MultimailboxSearch,
+        /**
+         *  The implementation supporting this capability should
+         *  provide an index on the fields: 
+         *  From, To, Cc, Bcc, Subjects, textBody & htmlBody
+         */
+        Text
+    }
+    
+    EnumSet<SearchCapabilities> getSupportedSearchCapabilities();
+
+    
     /**
      * Return the delimiter to use for folders
      * 
@@ -327,4 +353,37 @@ public interface MailboxManager extends RequestAware, MailboxListenerSupport {
      */
     List<MailboxPath> list(MailboxSession session) throws MailboxException;
 
+    /**
+     * Return all mailbox's annotation as the {@link List} of {@link MailboxAnnotation} without order and not duplicated by key
+     * 
+     * @param mailboxPath   the current mailbox
+     * @param session       the current session
+     * @return              List<MailboxAnnotation>
+     * @throws MailboxException in case of selected mailbox does not exist
+     */
+    List<MailboxAnnotation> getAllAnnotations(MailboxPath mailboxPath, MailboxSession session) throws MailboxException;
+
+    /**
+     * Return all mailbox's annotation filter by the list of the keys without order and not duplicated by key
+     * 
+     * @param mailboxPath   the current mailbox
+     * @param session       the current session
+     * @param keys          list of the keys should be filter
+     * @return              List<MailboxAnnotation>
+     * @throws MailboxException in case of selected mailbox does not exist
+     */
+    List<MailboxAnnotation> getAnnotationsByKeys(MailboxPath mailboxPath, MailboxSession session, Set<String> keys) throws MailboxException;
+
+    /**
+     * Update the mailbox's annotations. This method can:
+     * - Insert new annotation if it does not exist
+     * - Update the new value for existed annotation
+     * - Delete the existed annotation if its value is nil
+     * 
+     * @param mailboxPath   the current mailbox
+     * @param session       the current session
+     * @param mailboxAnnotations    the list of annotation should be insert/udpate/delete
+     * @throws MailboxException in case of selected mailbox does not exist
+     */
+    void updateAnnotations(MailboxPath mailboxPath, MailboxSession session, List<MailboxAnnotation> mailboxAnnotations) throws MailboxException;
 }

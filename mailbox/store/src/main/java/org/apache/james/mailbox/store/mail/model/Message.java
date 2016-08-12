@@ -103,4 +103,12 @@ public interface Message {
      * @return unmodifiable list of meta-data, not null
      */
     List<Property> getProperties();
+    
+    /**
+     * Return the list of attachments
+     * 
+     * @return a read only list of attachments
+     */
+    List<MessageAttachment> getAttachments();
+
 }

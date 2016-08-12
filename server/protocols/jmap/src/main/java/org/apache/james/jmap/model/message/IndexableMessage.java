@@ -19,40 +19,41 @@
 
 package org.apache.james.jmap.model.message;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
-import com.google.common.collect.Multimap;
-import org.apache.james.mailbox.store.extractor.TextExtractor;
-import org.apache.james.mailbox.store.mail.model.MailboxId;
-import org.apache.james.mailbox.store.mail.model.MailboxMessage;
-import org.apache.james.mailbox.store.mail.model.Property;
-import org.apache.james.mime4j.MimeException;
-
 import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.apache.james.mailbox.store.extractor.TextExtractor;
+import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.store.mail.model.Property;
+import org.apache.james.mime4j.MimeException;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
+import com.google.common.collect.Multimap;
+
 public class IndexableMessage {
 
-    public static IndexableMessage from(MailboxMessage<? extends MailboxId> message, TextExtractor textExtractor, ZoneId zoneId) {
+    public static IndexableMessage from(MailboxMessage message, TextExtractor textExtractor, ZoneId zoneId) {
         Preconditions.checkNotNull(message.getMailboxId());
         IndexableMessage indexableMessage = new IndexableMessage();
         try {
             MimePart parsingResult = new MimePartParser(message, textExtractor).parse();
-            indexableMessage.bodyText = parsingResult.locateFirstTextualBody();
+            indexableMessage.bodyText = parsingResult.retrieveTextPlainBody();
+            indexableMessage.bodyHtml = parsingResult.retrieveTextHtmlBody();
             indexableMessage.setFlattenedAttachments(parsingResult);
             indexableMessage.copyHeaderFields(parsingResult.getHeaderCollection(), getSanitizedInternalDate(message, zoneId));
+            indexableMessage.copyMessageFields(message, zoneId);
         } catch (IOException | MimeException e) {
             throw Throwables.propagate(e);
         }
-        indexableMessage.copyMessageFields(message, zoneId);
         return indexableMessage;
     }
 
@@ -72,14 +73,12 @@ public class IndexableMessage {
         this.sentDate = DateResolutionFormater.DATE_TIME_FOMATTER.format(headerCollection.getSentDate().orElse(internalDate));
     }
 
-    private void copyMessageFields(MailboxMessage<? extends MailboxId> message, ZoneId zoneId) {
+    private void copyMessageFields(MailboxMessage message, ZoneId zoneId) {
         this.id = message.getUid();
         this.mailboxId = message.getMailboxId().serialize();
         this.modSeq = message.getModSeq();
         this.size = message.getFullContentOctets();
         this.date = DateResolutionFormater.DATE_TIME_FOMATTER.format(getSanitizedInternalDate(message, zoneId));
-        this.mediaType = message.getMediaType();
-        this.subType = message.getSubType();
         this.isAnswered = message.isAnswered();
         this.isDeleted = message.isDeleted();
         this.isDraft = message.isDraft();
@@ -90,7 +89,7 @@ public class IndexableMessage {
         this.properties = message.getProperties();
     }
 
-    private static ZonedDateTime getSanitizedInternalDate(MailboxMessage<? extends MailboxId> message, ZoneId zoneId) {
+    private static ZonedDateTime getSanitizedInternalDate(MailboxMessage message, ZoneId zoneId) {
         if (message.getInternalDate() == null) {
             return ZonedDateTime.now();
         }
@@ -104,8 +103,6 @@ public class IndexableMessage {
     private long modSeq;
     private long size;
     private String date;
-    private String mediaType;
-    private String subType;
     private boolean isUnRead;
     private boolean isRecent;
     private boolean isFlagged;
@@ -124,6 +121,7 @@ public class IndexableMessage {
     private List<Property> properties;
     private List<MimePart> attachments;
     private Optional<String> bodyText;
+    private Optional<String> bodyHtml;
 
     @JsonProperty(JsonMessageConstants.ID)
     public Long getId() {
@@ -148,16 +146,6 @@ public class IndexableMessage {
     @JsonProperty(JsonMessageConstants.DATE)
     public String getDate() {
         return date;
-    }
-
-    @JsonProperty(JsonMessageConstants.MEDIA_TYPE)
-    public String getMediaType() {
-        return mediaType;
-    }
-
-    @JsonProperty(JsonMessageConstants.SUBTYPE)
-    public String getSubType() {
-        return subType;
     }
 
     @JsonProperty(JsonMessageConstants.IS_UNREAD)
@@ -248,6 +236,11 @@ public class IndexableMessage {
     @JsonProperty(JsonMessageConstants.TEXT_BODY)
     public Optional<String> getBodyText() {
         return bodyText;
+    }
+
+    @JsonIgnore
+    public Optional<String> getBodyHtml() {
+        return bodyHtml;
     }
 
     @JsonProperty(JsonMessageConstants.HAS_ATTACHMENT)

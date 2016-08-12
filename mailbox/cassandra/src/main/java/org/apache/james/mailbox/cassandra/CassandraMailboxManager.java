@@ -19,11 +19,11 @@
 
 package org.apache.james.mailbox.cassandra;
 
-import java.util.List;
+import java.util.EnumSet;
 
 import javax.inject.Inject;
-import javax.inject.Singleton;
 
+import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxPathLocker;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
@@ -35,55 +35,60 @@ import org.apache.james.mailbox.store.Authenticator;
 import org.apache.james.mailbox.store.StoreMailboxManager;
 import org.apache.james.mailbox.store.StoreMessageManager;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.apache.james.mailbox.store.mail.model.impl.SimpleMailbox;
 import org.apache.james.mailbox.store.search.MessageSearchIndex;
-
-import com.google.common.collect.Lists;
 
 /**
  * Cassandra implementation of {@link StoreMailboxManager}
  */
-@Singleton
-public class CassandraMailboxManager extends StoreMailboxManager<CassandraId> {
+public class CassandraMailboxManager extends StoreMailboxManager {
     private final MailboxPathLocker locker;
 
     @Inject
-    public CassandraMailboxManager(CassandraMailboxSessionMapperFactory mapperFactory, Authenticator authenticator, MailboxPathLocker locker) {
+    public CassandraMailboxManager(CassandraMailboxSessionMapperFactory mapperFactory, Authenticator authenticator, MailboxPathLocker locker, MessageParser messageParser) {
         super(mapperFactory,
             authenticator,
             locker,
             new UnionMailboxACLResolver(),
-            new SimpleGroupMembershipResolver());
+            new SimpleGroupMembershipResolver(),
+            messageParser);
         this.locker = locker;
     }
 
     @Override
     @Inject
-    public void setMessageSearchIndex(MessageSearchIndex<CassandraId> index) {
+    public void setMessageSearchIndex(MessageSearchIndex index) {
         super.setMessageSearchIndex(index);
     }
 
     @Override
-    public List<Capabilities> getSupportedCapabilities() {
-        return Lists.newArrayList(Capabilities.Basic, Capabilities.Move);
+    public EnumSet<MailboxManager.MailboxCapabilities> getSupportedMailboxCapabilities() {
+        return EnumSet.of(MailboxCapabilities.Move, MailboxCapabilities.UserFlag, MailboxCapabilities.Namespace, MailboxCapabilities.Annotation);
     }
 
     @Override
-    protected Mailbox<CassandraId> doCreateMailbox(MailboxPath mailboxPath, MailboxSession session) throws MailboxException {
-        SimpleMailbox<CassandraId> cassandraMailbox = new SimpleMailbox<>(mailboxPath, randomUidValidity());
+    public EnumSet<MessageCapabilities> getSupportedMessageCapabilities() {
+        return EnumSet.of(MessageCapabilities.Attachment);
+    }
+    
+    @Override
+    protected Mailbox doCreateMailbox(MailboxPath mailboxPath, MailboxSession session) throws MailboxException {
+        SimpleMailbox cassandraMailbox = new SimpleMailbox(mailboxPath, randomUidValidity());
         cassandraMailbox.setACL(SimpleMailboxACL.EMPTY);
         return cassandraMailbox;
     }
 
     @Override
-    protected StoreMessageManager<CassandraId> createMessageManager(Mailbox<CassandraId> mailboxRow, MailboxSession session) throws MailboxException {
+    protected StoreMessageManager createMessageManager(Mailbox mailboxRow, MailboxSession session) throws MailboxException {
         return new CassandraMessageManager(getMapperFactory(),
             getMessageSearchIndex(),
             getEventDispatcher(),
             this.locker,
             mailboxRow,
             getQuotaManager(),
-            getQuotaRootResolver());
+            getQuotaRootResolver(),
+            getMessageParser());
     }
 
 }

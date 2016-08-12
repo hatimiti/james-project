@@ -35,6 +35,7 @@ import javax.mail.util.SharedByteArrayInputStream;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.io.input.BoundedInputStream;
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.commons.JcrUtils;
 import org.apache.james.mailbox.exception.MailboxException;
@@ -44,13 +45,14 @@ import org.apache.james.mailbox.jcr.Persistent;
 import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.FlagsBuilder;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.store.mail.model.MessageAttachment;
 import org.apache.james.mailbox.store.mail.model.MessageId;
 import org.apache.james.mailbox.store.mail.model.Property;
 import org.apache.james.mailbox.store.mail.model.impl.MessageUidComparator;
 import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
 import org.slf4j.Logger;
 
-public class JCRMailboxMessage implements MailboxMessage<JCRId>, JCRImapConstants, Persistent {
+public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Persistent {
 
     private static final MessageUidComparator MESSAGE_UID_COMPARATOR = new MessageUidComparator();
     
@@ -673,7 +675,12 @@ public class JCRMailboxMessage implements MailboxMessage<JCRId>, JCRImapConstant
     }
 
     @Override
-    public int compareTo(MailboxMessage<JCRId> other) {
+    public int compareTo(MailboxMessage other) {
         return MESSAGE_UID_COMPARATOR.compare(this, other);
+    }
+
+    @Override
+    public List<MessageAttachment> getAttachments() {
+        throw new NotImplementedException("Attachments are not implemented");
     }
 }

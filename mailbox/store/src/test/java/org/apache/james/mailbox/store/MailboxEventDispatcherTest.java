@@ -19,7 +19,13 @@
 
 package org.apache.james.mailbox.store;
 
-import static org.junit.Assert.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
 import java.util.Iterator;
@@ -36,18 +42,12 @@ import org.apache.james.mailbox.model.UpdatedFlags;
 import org.apache.james.mailbox.store.event.MailboxEventDispatcher;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.util.EventCollector;
-import org.jmock.Expectations;
-import org.jmock.Mockery;
-import org.jmock.integration.junit4.JMock;
-import org.jmock.integration.junit4.JUnit4Mockery;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
-@RunWith(JMock.class)
 public class MailboxEventDispatcherTest {
 
-    MailboxEventDispatcher<TestId> dispatcher;
+    MailboxEventDispatcher dispatcher;
 
     EventCollector collector;
 
@@ -63,9 +63,7 @@ public class MailboxEventDispatcherTest {
         
     };
 
-    private  Mockery mockery = new JUnit4Mockery();
-
-    private Mailbox<TestId> mailbox = new Mailbox<TestId>() {
+    private Mailbox mailbox = new Mailbox() {
 
         @Override
         public TestId getMailboxId() {
@@ -120,11 +118,9 @@ public class MailboxEventDispatcherTest {
     public void setUp() throws Exception {
         collector = new EventCollector();
 
-        dispatcher = new MailboxEventDispatcher<TestId>(collector);
-        result = mockery.mock(MessageResult.class);
-        mockery.checking(new Expectations() {{
-            allowing(result).getUid();will(returnValue(23L));
-        }});
+        dispatcher = new MailboxEventDispatcher(collector);
+        result = mock(MessageResult.class);
+        when(result.getUid()).thenReturn(23L);
     }
 
 

@@ -26,7 +26,6 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 
 import javax.servlet.FilterChain;
 import javax.servlet.ServletRequest;
@@ -35,6 +34,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.apache.james.jmap.api.access.AccessToken;
 import org.apache.james.jmap.api.access.AccessTokenRepository;
+import org.apache.james.jmap.exceptions.MailboxSessionCreationException;
 import org.apache.james.jmap.memory.access.MemoryAccessTokenRepository;
 import org.apache.james.mailbox.MailboxSession;
 import org.junit.Before;
@@ -100,6 +100,20 @@ public class AuthenticationFilterTest {
     }
 
     @Test
+    public void filterShouldChainAuthorizationStrategy() throws Exception {
+        AccessToken token = AccessToken.fromString(TOKEN);
+        when(mockedRequest.getHeader("Authorization"))
+            .thenReturn(TOKEN);
+
+        accessTokenRepository.addToken("user@domain.tld", token);
+
+        AuthenticationFilter sut = new AuthenticationFilter(ImmutableList.of(new FakeAuthenticationStrategy(false), new FakeAuthenticationStrategy(true)));
+        sut.doFilter(mockedRequest, mockedResponse, filterChain);
+
+        verify(filterChain).doFilter(any(ServletRequest.class), eq(mockedResponse));
+    }
+
+    @Test
     public void filterShouldReturnUnauthorizedOnBadAuthorizationHeader() throws Exception {
         when(mockedRequest.getHeader("Authorization"))
             .thenReturn("bad");
@@ -120,7 +134,7 @@ public class AuthenticationFilterTest {
         verify(mockedResponse).sendError(HttpServletResponse.SC_UNAUTHORIZED);
     }
 
-    private class FakeAuthenticationStrategy implements AuthenticationStrategy {
+    private static class FakeAuthenticationStrategy implements AuthenticationStrategy {
 
         private final boolean isAuthorized;
 
@@ -129,13 +143,11 @@ public class AuthenticationFilterTest {
         }
 
         @Override
-        public MailboxSession createMailboxSession(Stream<String> requestHeaders) {
-            return null;
-        }
-
-        @Override
-        public boolean checkAuthorizationHeader(Stream<String> requestHeaders) {
-            return isAuthorized;
+        public MailboxSession createMailboxSession(HttpServletRequest httpRequest) {
+            if (!isAuthorized) {
+                throw new MailboxSessionCreationException(null);
+            }
+            return mock(MailboxSession.class);
         }
     }
 }

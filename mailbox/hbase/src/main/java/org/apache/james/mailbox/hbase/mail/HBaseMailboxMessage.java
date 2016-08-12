@@ -33,6 +33,7 @@ import java.util.List;
 
 import javax.mail.Flags;
 
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.hbase.HBaseId;
@@ -40,6 +41,7 @@ import org.apache.james.mailbox.hbase.io.ChunkInputStream;
 import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.FlagsBuilder;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.store.mail.model.MessageAttachment;
 import org.apache.james.mailbox.store.mail.model.MessageId;
 import org.apache.james.mailbox.store.mail.model.Property;
 import org.apache.james.mailbox.store.mail.model.impl.MessageUidComparator;
@@ -50,7 +52,7 @@ import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
  * message content. The message content is retrieved using a ChunkedInputStream
  * directly from HBase.
  */
-public class HBaseMailboxMessage implements MailboxMessage<HBaseId> {
+public class HBaseMailboxMessage implements MailboxMessage {
 
     private static final MessageUidComparator MESSAGE_UID_COMPARATOR = new MessageUidComparator();
     private static final String TOSTRING_SEPARATOR = " ";
@@ -94,7 +96,7 @@ public class HBaseMailboxMessage implements MailboxMessage<HBaseId> {
      * Create a copy of the given message.
      * All properties are cloned except mailbox and UID.
      */
-    public HBaseMailboxMessage(Configuration conf, HBaseId mailboxId, long uid, long modSeq, MailboxMessage<?> original) throws MailboxException {
+    public HBaseMailboxMessage(Configuration conf, HBaseId mailboxId, long uid, long modSeq, MailboxMessage original) throws MailboxException {
         this.conf = conf;
         this.mailboxId = mailboxId;
         this.uid = uid;
@@ -348,7 +350,12 @@ public class HBaseMailboxMessage implements MailboxMessage<HBaseId> {
     }
 
     @Override
-    public int compareTo(MailboxMessage<HBaseId> other) {
+    public int compareTo(MailboxMessage other) {
         return MESSAGE_UID_COMPARATOR.compare(this, other);
+    }
+
+    @Override
+    public List<MessageAttachment> getAttachments() {
+        throw new NotImplementedException("Attachments are not implemented");
     }
 }

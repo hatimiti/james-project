@@ -28,6 +28,8 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -47,7 +49,7 @@ public class SetError {
         private String description;
         private Optional<ImmutableSet<MessageProperty>> properties = Optional.empty();
 
-        private Builder() {
+        protected Builder() {
         }
 
         public Builder type(String type) {
@@ -58,6 +60,10 @@ public class SetError {
         public Builder description(String description) {
             this.description = description;
             return this;
+        }
+
+        public Builder properties(MessageProperty... properties) {
+            return properties(ImmutableSet.copyOf(properties));
         }
 
         public Builder properties(Set<MessageProperty> properties) {
@@ -85,6 +91,13 @@ public class SetError {
         this.properties = properties;
     }
 
+    protected SetError(SetError setError) {
+        this.type = setError.type;
+        this.description = setError.description;
+        this.properties = setError.properties;
+    }
+
+    
     @JsonSerialize
     public String getType() {
         return type;
@@ -98,5 +111,30 @@ public class SetError {
     @JsonSerialize
     public Optional<ImmutableSet<MessageProperty>> getProperties() {
         return properties;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof SetError) {
+            SetError other = (SetError) obj;
+            return Objects.equal(this.type, other.type)
+                && Objects.equal(this.description, other.description)
+                && Objects.equal(this.properties, other.properties);
+        }
+        return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(type, description, properties);
+    }
+
+    @Override
+    public String toString() {
+        return MoreObjects.toStringHelper(this)
+                .add("description", description)
+                .add("type", type)
+                .add("properties", properties)
+                .toString();
     }
 }

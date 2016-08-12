@@ -19,28 +19,33 @@
 package org.apache.james.mailbox.store.mail.model.impl;
 
 import org.apache.james.mailbox.model.MailboxACL;
+import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.SimpleMailboxACL;
-import org.apache.james.mailbox.store.mail.model.MailboxId;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 
-public class SimpleMailbox<Id extends MailboxId> implements Mailbox<Id> {
+public class SimpleMailbox implements Mailbox {
 
-    private Id id = null;
+    private MailboxId id = null;
     private String namespace;
     private String user;
     private String name;
     private final long uidValidity;
     private MailboxACL acl = SimpleMailboxACL.EMPTY;
 
-    public SimpleMailbox(MailboxPath path, long uidValidity) {
+    public SimpleMailbox(MailboxPath path, long uidValidity, MailboxId mailboxId) {
+        this.id = mailboxId;
         this.namespace = path.getNamespace();
         this.user = path.getUser();
         this.name = path.getName();
         this.uidValidity = uidValidity;
     }
-    
-    public SimpleMailbox(Mailbox<Id> mailbox) {
+
+    public SimpleMailbox(MailboxPath path, long uidValidity) {
+        this(path, uidValidity, null);
+    }
+
+    public SimpleMailbox(Mailbox mailbox) {
         this.id = mailbox.getMailboxId();
         this.namespace = mailbox.getNamespace();
         this.user = mailbox.getUser();
@@ -51,7 +56,7 @@ public class SimpleMailbox<Id extends MailboxId> implements Mailbox<Id> {
     /**
      * @see org.apache.james.mailbox.store.mail.model.Mailbox#getMailboxId()
      */
-    public Id getMailboxId() {
+    public MailboxId getMailboxId() {
         return id;
     }
 
@@ -109,17 +114,16 @@ public class SimpleMailbox<Id extends MailboxId> implements Mailbox<Id> {
     /**
      * @see java.lang.Object#equals(java.lang.Object)
      */
-    @SuppressWarnings("unchecked")
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
         if (obj instanceof SimpleMailbox) {
             if (id != null) {
-                if (id.equals(((SimpleMailbox<Id>) obj).getMailboxId()))
+                if (id.equals(((SimpleMailbox) obj).getMailboxId()))
                     return true;
             } else {
-                if (((SimpleMailbox<Id>) obj).getMailboxId() == null)
+                if (((SimpleMailbox) obj).getMailboxId() == null)
                     return true;
             }
         }
@@ -148,7 +152,7 @@ public class SimpleMailbox<Id extends MailboxId> implements Mailbox<Id> {
     }
 
 
-    public void setMailboxId(Id id) {
+    public void setMailboxId(MailboxId id) {
         this.id = id;
     }
 

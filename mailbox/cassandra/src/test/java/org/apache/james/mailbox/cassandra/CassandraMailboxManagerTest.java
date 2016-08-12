@@ -20,87 +20,74 @@ package org.apache.james.mailbox.cassandra;
 
 import org.apache.james.backends.cassandra.CassandraCluster;
 import org.apache.james.backends.cassandra.init.CassandraModuleComposite;
-import org.apache.james.mailbox.AbstractMailboxManagerTest;
-import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.cassandra.mail.CassandraModSeqProvider;
 import org.apache.james.mailbox.cassandra.mail.CassandraUidProvider;
 import org.apache.james.mailbox.cassandra.modules.CassandraAclModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraAnnotationModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraAttachmentModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraMailboxCounterModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraMailboxModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraMessageModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraModSeqModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraSubscriptionModule;
-import org.apache.james.mailbox.cassandra.modules.CassandraUidAndModSeqModule;
-import org.apache.james.mailbox.exception.BadCredentialsException;
+import org.apache.james.mailbox.cassandra.modules.CassandraUidModule;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.store.JVMMailboxPathLocker;
-import org.junit.After;
-import org.junit.Before;
-import org.slf4j.LoggerFactory;
+import org.apache.james.mailbox.store.NoMailboxPathLocker;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
+import org.junit.runner.RunWith;
+import org.xenei.junit.contract.Contract;
+import org.xenei.junit.contract.ContractImpl;
+import org.xenei.junit.contract.ContractSuite;
+import org.xenei.junit.contract.IProducer;
 
-/**
- * CassandraMailboxManagerTest that extends the StoreMailboxManagerTest.
- * 
- */
-public class CassandraMailboxManagerTest extends AbstractMailboxManagerTest {
+import com.google.common.base.Throwables;
+
+@RunWith(ContractSuite.class)
+@ContractImpl(CassandraMailboxManager.class)
+public class CassandraMailboxManagerTest {
 
     private static final CassandraCluster CASSANDRA = CassandraCluster.create(new CassandraModuleComposite(
         new CassandraAclModule(),
         new CassandraMailboxModule(),
         new CassandraMessageModule(),
         new CassandraMailboxCounterModule(),
-        new CassandraUidAndModSeqModule(),
-        new CassandraSubscriptionModule()));
+        new CassandraUidModule(),
+        new CassandraModSeqModule(),
+        new CassandraSubscriptionModule(),
+        new CassandraAttachmentModule(),
+        new CassandraAnnotationModule()));
 
-    /**
-     * Setup the mailboxManager.
-     * 
-     * @throws Exception
-     */
-    @Before
-    public void setup() throws Exception {
-        CASSANDRA.ensureAllTables();
-        CASSANDRA.clearAllTables();
-        createMailboxManager();
+    private IProducer<CassandraMailboxManager> producer = new IProducer<CassandraMailboxManager>() {
+
+        @Override
+        public CassandraMailboxManager newInstance() {
+            CASSANDRA.ensureAllTables();
+            CassandraUidProvider uidProvider = new CassandraUidProvider(CASSANDRA.getConf());
+            CassandraModSeqProvider modSeqProvider = new CassandraModSeqProvider(CASSANDRA.getConf());
+            CassandraMailboxSessionMapperFactory mapperFactory = new CassandraMailboxSessionMapperFactory(uidProvider,
+                modSeqProvider,
+                CASSANDRA.getConf(),
+                CASSANDRA.getTypesProvider());
+
+            CassandraMailboxManager manager = new CassandraMailboxManager(mapperFactory, null, new NoMailboxPathLocker(), new MessageParser());
+            try {
+                manager.init();
+            } catch (MailboxException e) {
+                throw Throwables.propagate(e);
+            }
+
+            return manager;
+        }
+
+        @Override
+        public void cleanUp() {
+            CASSANDRA.clearAllTables();
+        }
+    };
+
+    @Contract.Inject
+    public IProducer<CassandraMailboxManager> getProducer() {
+        return producer;
     }
 
-    /**
-     * Close the system session and entityManagerFactory
-     * 
-     * @throws MailboxException
-     * @throws BadCredentialsException
-     */
-    @After
-    public void tearDown() throws Exception {
-        deleteAllMailboxes();
-        MailboxSession session = getMailboxManager().createSystemSession("test", LoggerFactory.getLogger("Test"));
-        session.close();
-    }
-
-    /*
-     * (non-Javadoc)i deve
-     * 
-     * @see org.apache.james.mailbox.MailboxManagerTest#createMailboxManager()
-     */
-    @Override
-    protected void createMailboxManager() throws MailboxException {
-        final CassandraUidProvider uidProvider = new CassandraUidProvider(CASSANDRA.getConf());
-        final CassandraModSeqProvider modSeqProvider = new CassandraModSeqProvider(CASSANDRA.getConf());
-        final CassandraMailboxSessionMapperFactory mapperFactory = new CassandraMailboxSessionMapperFactory(uidProvider,
-            modSeqProvider,
-            CASSANDRA.getConf(),
-            CASSANDRA.getTypesProvider());
-
-        final CassandraMailboxManager manager = new CassandraMailboxManager(mapperFactory, null, new JVMMailboxPathLocker());
-        manager.init();
-
-        setMailboxManager(manager);
-
-        deleteAllMailboxes();
-    }
-
-    private void deleteAllMailboxes() throws BadCredentialsException, MailboxException {
-        MailboxSession session = getMailboxManager().createSystemSession("test", LoggerFactory.getLogger("Test"));
-        CASSANDRA.clearAllTables();
-        session.close();
-    }
 }

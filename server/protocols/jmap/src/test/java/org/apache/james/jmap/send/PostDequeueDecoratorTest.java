@@ -29,9 +29,9 @@ import java.util.Iterator;
 
 import javax.mail.Flags;
 
+import org.apache.james.jmap.exceptions.MailboxRoleNotFoundException;
 import org.apache.james.jmap.model.MessageId;
 import org.apache.james.jmap.send.exception.MailShouldBeInOutboxException;
-import org.apache.james.jmap.send.exception.MailboxRoleNotFoundException;
 import org.apache.james.jmap.send.exception.MessageIdNotFoundException;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
@@ -39,7 +39,6 @@ import org.apache.james.mailbox.acl.GroupMembershipResolver;
 import org.apache.james.mailbox.acl.MailboxACLResolver;
 import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
 import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
-import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxSessionMapperFactory;
 import org.apache.james.mailbox.model.MailboxConstants;
 import org.apache.james.mailbox.model.MailboxPath;
@@ -49,6 +48,7 @@ import org.apache.james.mailbox.store.StoreMailboxManager;
 import org.apache.james.mailbox.store.mail.MessageMapper;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.apache.james.queue.api.MailQueue.MailQueueItem;
 import org.apache.mailet.Mail;
 import org.apache.mailet.base.test.FakeMail;
@@ -68,23 +68,24 @@ public class PostDequeueDecoratorTest {
     private static final String MESSAGE_ID = USERNAME + "|" + OUTBOX_MAILBOX_PATH.getName() + "|" + UID;
     
     private InMemoryMailboxSessionMapperFactory mailboxSessionMapperFactory;
-    private StoreMailboxManager<InMemoryId> mailboxManager;
+    private StoreMailboxManager mailboxManager;
     private MailQueueItem mockedMailQueueItem;
     private Mail mail;
-    private PostDequeueDecorator<InMemoryId> testee;
+    private PostDequeueDecorator testee;
 
     @Before
     public void init() throws Exception {
         mailboxSessionMapperFactory = new InMemoryMailboxSessionMapperFactory();
         MailboxACLResolver aclResolver = new UnionMailboxACLResolver();
         GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
-        mailboxManager = new StoreMailboxManager<>(mailboxSessionMapperFactory, new MockAuthenticator(), aclResolver, groupMembershipResolver);
+        MessageParser messageParser = new MessageParser();
+        mailboxManager = new StoreMailboxManager(mailboxSessionMapperFactory, new MockAuthenticator(), aclResolver, groupMembershipResolver, messageParser);
         mailboxManager.init();
 
         mockedMailQueueItem = mock(MailQueueItem.class);
         mail = new FakeMail();
         when(mockedMailQueueItem.getMail()).thenReturn(mail);
-        testee = new PostDequeueDecorator<InMemoryId>(mockedMailQueueItem, mailboxManager, mailboxSessionMapperFactory, mailboxSessionMapperFactory);
+        testee = new PostDequeueDecorator(mockedMailQueueItem, mailboxManager, mailboxSessionMapperFactory, mailboxSessionMapperFactory);
     }
     
     @Test
@@ -145,9 +146,9 @@ public class PostDequeueDecoratorTest {
         
         testee.done(true);
         
-        Mailbox<InMemoryId> sentMailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(SENT_MAILBOX_PATH);
-        MessageMapper<InMemoryId> messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
-        Iterator<MailboxMessage<InMemoryId>> resultIterator = messageMapper.findInMailbox(sentMailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
+        Mailbox sentMailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(SENT_MAILBOX_PATH);
+        MessageMapper messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
+        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(sentMailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
         assertThat(resultIterator).hasSize(1);
     }
     
@@ -163,9 +164,9 @@ public class PostDequeueDecoratorTest {
         
         testee.done(true);
         
-        Mailbox<InMemoryId> mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
-        MessageMapper<InMemoryId> messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
-        Iterator<MailboxMessage<InMemoryId>> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
+        Mailbox mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
+        MessageMapper messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
+        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
         assertThat(resultIterator).hasSize(0);
     }
     
@@ -181,9 +182,9 @@ public class PostDequeueDecoratorTest {
         
         testee.done(false);
         
-        Mailbox<InMemoryId> mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
-        MessageMapper<InMemoryId> messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
-        Iterator<MailboxMessage<InMemoryId>> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
+        Mailbox mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
+        MessageMapper messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
+        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
         assertThat(resultIterator).hasSize(1);
     }
     
@@ -197,9 +198,9 @@ public class PostDequeueDecoratorTest {
         
         testee.done(true);
         
-        Mailbox<InMemoryId> mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
-        MessageMapper<InMemoryId> messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
-        Iterator<MailboxMessage<InMemoryId>> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
+        Mailbox mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
+        MessageMapper messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
+        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
         assertThat(resultIterator).hasSize(1);
     }
     
@@ -214,9 +215,9 @@ public class PostDequeueDecoratorTest {
         
         testee.done(true);
         
-        Mailbox<InMemoryId> mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
-        MessageMapper<InMemoryId> messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
-        Iterator<MailboxMessage<InMemoryId>> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
+        Mailbox mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
+        MessageMapper messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
+        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
         assertThat(resultIterator).hasSize(1);
     }
     
@@ -231,9 +232,9 @@ public class PostDequeueDecoratorTest {
         
         testee.done(true);
         
-        Mailbox<InMemoryId> mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
-        MessageMapper<InMemoryId> messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
-        Iterator<MailboxMessage<InMemoryId>> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
+        Mailbox mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
+        MessageMapper messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
+        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
         assertThat(resultIterator).hasSize(1);
     }
     
@@ -249,9 +250,9 @@ public class PostDequeueDecoratorTest {
         
         testee.done(true);
         
-        Mailbox<InMemoryId> mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
-        MessageMapper<InMemoryId> messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
-        Iterator<MailboxMessage<InMemoryId>> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
+        Mailbox mailbox = mailboxSessionMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(OUTBOX_MAILBOX_PATH);
+        MessageMapper messageMapper = mailboxSessionMapperFactory.getMessageMapper(mailboxSession);
+        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(UID), MessageMapper.FetchType.Full, 1);
         assertThat(resultIterator).hasSize(1);
     }
 }
