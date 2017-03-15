@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>james-server-guice</artifactId>
         <groupId>org.apache.james</groupId>
-        <version>3.0.0-beta5-SNAPSHOT</version>
+        <version>3.0.0-beta6-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <modelVersion>4.0.0</modelVersion>
@@ -139,10 +137,6 @@
                 </dependency>
                 <dependency>
                     <groupId>${project.groupId}</groupId>
-                    <artifactId>apache-mailet-standard</artifactId>
-                </dependency>
-                <dependency>
-                    <groupId>${project.groupId}</groupId>
                     <artifactId>james-server-cli</artifactId>
                 </dependency>
                 <dependency>
@@ -179,19 +173,67 @@
                 </dependency>
                 <dependency>
                     <groupId>${project.groupId}</groupId>
-                    <artifactId>james-server-jmap</artifactId>
+                    <artifactId>james-server-guice-configuration</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-imap</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-jmap</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-lmtp</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-pop</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-mailbox</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-mailet</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-managedsieve</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-smtp</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-webadmin</artifactId>
+                    <scope>test</scope>
                 </dependency>
                 <dependency>
                     <groupId>${project.groupId}</groupId>
                     <artifactId>james-server-mailets</artifactId>
                 </dependency>
                 <dependency>
-                    <groupId>${project.groupId}</groupId>
-                    <artifactId>james-server-mailetcontainer-api</artifactId>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>metrics-api</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>${project.groupId}</groupId>
-                    <artifactId>james-server-mailetcontainer-camel</artifactId>
+                    <artifactId>metrics-logger</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>metrics-dropwizard</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>${project.groupId}</groupId>
@@ -200,14 +242,6 @@
                 <dependency>
                     <groupId>${project.groupId}</groupId>
                     <artifactId>james-server-protocols-library</artifactId>
-                </dependency>
-                <dependency>
-                    <groupId>${project.groupId}</groupId>
-                    <artifactId>james-server-protocols-lmtp</artifactId>
-                </dependency>
-                <dependency>
-                    <groupId>${project.groupId}</groupId>
-                    <artifactId>james-server-protocols-managesieve</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>${project.groupId}</groupId>
@@ -226,16 +260,16 @@
                     <artifactId>james-server-queue-activemq</artifactId>
                 </dependency>
                 <dependency>
-                    <groupId>org.apache.james</groupId>
-                    <artifactId>james-server-webadmin</artifactId>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-onami</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james.protocols</groupId>
                     <artifactId>protocols-imap</artifactId>
                 </dependency>
                 <dependency>
-                    <groupId>org.apache.james.protocols</groupId>
-                    <artifactId>protocols-managesieve</artifactId>
+                    <groupId>com.github.steveash.guavate</groupId>
+                    <artifactId>guavate</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>com.google.inject</groupId>
@@ -253,10 +287,6 @@
                     <groupId>com.jayway.restassured</groupId>
                     <artifactId>rest-assured</artifactId>
                     <scope>test</scope>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.onami.lifecycle</groupId>
-                    <artifactId>org.apache.onami.lifecycle.jsr250</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>org.assertj</groupId>

@@ -32,12 +32,15 @@ import org.apache.james.filesystem.api.JamesDirectoriesProvider;
 import org.apache.james.modules.server.AsyncTasksExecutorModule;
 import org.apache.james.modules.server.ConfigurationProviderModule;
 import org.apache.james.modules.server.DNSServiceModule;
-import org.apache.james.utils.GuiceServerProbe;
-import org.apache.onami.lifecycle.jsr250.PreDestroyModule;
+import org.apache.james.modules.server.DropWizardMetricsModule;
+import org.apache.james.onami.lifecycle.PreDestroyModule;
+import org.apache.james.utils.GuiceProbe;
+import org.apache.james.utils.DataProbeImpl;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
+import com.google.inject.multibindings.Multibinder;
 
 public class CommonServicesModule extends AbstractModule {
     
@@ -53,11 +56,12 @@ public class CommonServicesModule extends AbstractModule {
         install(new PreDestroyModule());
         install(new DNSServiceModule());
         install(new AsyncTasksExecutorModule());
+        install(new DropWizardMetricsModule());
 
         bind(FileSystemImpl.class).in(Scopes.SINGLETON);
-        bind(GuiceServerProbe.class).in(Scopes.SINGLETON);
 
         bind(FileSystem.class).to(FileSystemImpl.class);
+        Multibinder.newSetBinder(binder(), GuiceProbe.class).addBinding().to(DataProbeImpl.class);
     }
 
     @Provides @Singleton @Named(CONFIGURATION_PATH)

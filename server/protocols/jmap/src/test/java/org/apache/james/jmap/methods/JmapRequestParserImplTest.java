@@ -21,6 +21,9 @@ package org.apache.james.jmap.methods;
 
 import org.apache.james.jmap.json.ObjectMapperFactory;
 import org.apache.james.jmap.model.ProtocolRequest;
+import org.apache.james.mailbox.inmemory.InMemoryId;
+import org.apache.james.mailbox.inmemory.InMemoryMessageId;
+import org.junit.Before;
 import org.junit.Test;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,15 +31,20 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public class JmapRequestParserImplTest {
+    private JmapRequestParserImpl testee;
 
+    @Before
+    public void setup() {
+        testee = new JmapRequestParserImpl(new ObjectMapperFactory(new InMemoryId.Factory(), new InMemoryMessageId.Factory()));
+    }
+    
     @Test(expected=IllegalArgumentException.class)
     public void extractJmapRequestShouldThrowWhenNullRequestClass() throws Exception {
         JsonNode[] nodes = new JsonNode[] { new ObjectNode(new JsonNodeFactory(false)).textNode("unknwonMethod"),
                 new ObjectNode(new JsonNodeFactory(false)).putObject("{\"id\": \"id\"}"),
                 new ObjectNode(new JsonNodeFactory(false)).textNode("#1")} ;
 
-        JmapRequestParserImpl jmapRequestParserImpl = new JmapRequestParserImpl(new ObjectMapperFactory());
-        jmapRequestParserImpl.extractJmapRequest(ProtocolRequest.deserialize(nodes), null);
+        testee.extractJmapRequest(ProtocolRequest.deserialize(nodes), null);
     }
 
     @Test
@@ -47,8 +55,7 @@ public class JmapRequestParserImplTest {
                 parameters,
                 new ObjectNode(new JsonNodeFactory(false)).textNode("#1")} ;
 
-        JmapRequestParserImpl jmapRequestParserImpl = new JmapRequestParserImpl(new ObjectMapperFactory());
-        jmapRequestParserImpl.extractJmapRequest(ProtocolRequest.deserialize(nodes), RequestClass.class);
+        testee.extractJmapRequest(ProtocolRequest.deserialize(nodes), RequestClass.class);
     }
 
     @Test
@@ -58,8 +65,7 @@ public class JmapRequestParserImplTest {
                 parameters,
                 new ObjectNode(new JsonNodeFactory(false)).textNode("#1")} ;
 
-        JmapRequestParserImpl jmapRequestParserImpl = new JmapRequestParserImpl(new ObjectMapperFactory());
-        jmapRequestParserImpl.extractJmapRequest(ProtocolRequest.deserialize(nodes), RequestClass.class);
+        testee.extractJmapRequest(ProtocolRequest.deserialize(nodes), RequestClass.class);
     }
 
     private static class RequestClass implements JmapRequest {

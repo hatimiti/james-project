@@ -20,7 +20,6 @@
 package org.apache.james.jmap.api.vacation;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.ZonedDateTime;
 import java.util.Optional;
@@ -189,15 +188,6 @@ public class VacationTest {
                 .build()
                 .isActiveAtDate(DATE_TIME_2017_1MS))
             .isFalse();
-    }
-
-    @Test
-    public void activeVacationShouldHaveHtmlBodyOrTextBody() {
-        assertThatThrownBy(
-            () -> Vacation.builder()
-                .enabled(true)
-                .build())
-            .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

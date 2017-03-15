@@ -24,10 +24,11 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.images.builder.ImageFromDockerfile;
 
 import com.google.common.base.Strings;
 
-public class SwarmGenericContainer extends GenericContainer {
+public class SwarmGenericContainer extends GenericContainer<SwarmGenericContainer> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SwarmGenericContainer.class);
     private static final String DOCKER_CONTAINER = "DOCKER_CONTAINER";
@@ -36,15 +37,24 @@ public class SwarmGenericContainer extends GenericContainer {
         super(dockerImageName);
     }
 
-    public GenericContainer withAffinityToContainer() {
+    public SwarmGenericContainer(ImageFromDockerfile imageFromDockerfile) {
+        super(imageFromDockerfile);
+    }
+
+    public SwarmGenericContainer withAffinityToContainer() {
         String container = System.getenv(DOCKER_CONTAINER);
         if (Strings.isNullOrEmpty(container)) {
             LOGGER.warn("'DOCKER_CONTAINER' environment variable not found, dockering without affinity");
-            return this;
+            return self();
         }
         List<String> envVariables = getEnv();
         envVariables.add("affinity:container==" + container);
         setEnv(envVariables);
-        return this;
+        return self();
+    }
+
+    @SuppressWarnings("deprecation")
+    public String getIp() {
+        return getContainerInfo().getNetworkSettings().getIpAddress();
     }
 }

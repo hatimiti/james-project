@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,59 +32,79 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
 import org.apache.james.mailbox.acl.MailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.mock.MockMailboxSession;
 import org.apache.james.mailbox.model.MailboxAnnotation;
+import org.apache.james.mailbox.model.MailboxAnnotationKey;
+import org.apache.james.mailbox.model.MailboxConstants;
 import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.store.mail.AnnotationMapper;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
+import org.apache.james.mailbox.store.transaction.Mapper;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class StoreMailboxManagerAnnotationTest {
-    private static final MailboxAnnotation PRIVATE_ANNOTATION = MailboxAnnotation.newInstance("/private/comment", "My private comment");
-    private static final MailboxAnnotation SHARED_ANNOTATION =  MailboxAnnotation.newInstance("/shared/comment", "My shared comment");
-    private static final Set<String> KEYS = ImmutableSet.of("/private/comment");
+    private static final MailboxAnnotationKey PRIVATE_KEY = new MailboxAnnotationKey("/private/comment");
+    private static final MailboxAnnotationKey SHARED_KEY = new MailboxAnnotationKey("/shared/comment");
+
+    private static final MailboxAnnotation PRIVATE_ANNOTATION = MailboxAnnotation.newInstance(PRIVATE_KEY, "My private comment");
+    private static final MailboxAnnotation SHARED_ANNOTATION =  MailboxAnnotation.newInstance(SHARED_KEY, "My shared comment");
+    private static final Set<MailboxAnnotationKey> KEYS = ImmutableSet.of(PRIVATE_KEY);
 
     private static final List<MailboxAnnotation> ANNOTATIONS = ImmutableList.of(PRIVATE_ANNOTATION, SHARED_ANNOTATION);
-    private static final List<MailboxAnnotation> ANNOTATIONS_WITH_NIL_ENTRY = ImmutableList.of(PRIVATE_ANNOTATION, MailboxAnnotation.nil("/shared/comment"));
+    private static final List<MailboxAnnotation> ANNOTATIONS_WITH_NIL_ENTRY = ImmutableList.of(PRIVATE_ANNOTATION, MailboxAnnotation.nil(SHARED_KEY));
+    private static final MockMailboxSession session = new MockMailboxSession("userName");
 
     @Mock private MailboxSessionMapperFactory mailboxSessionMapperFactory;
     @Mock private Authenticator authenticator;
+    @Mock private Authorizator authorizator;
     @Mock private MailboxACLResolver aclResolver;
     @Mock private GroupMembershipResolver groupMembershipResolver;
-    
-    @Mock private MailboxSession session;
     @Mock private MailboxMapper mailboxMapper;
     @Mock private AnnotationMapper annotationMapper;
     @Mock private MailboxPath mailboxPath;
     @Mock private Mailbox mailbox;
     @Mock private MessageParser messageParser;
     @Mock private MailboxId mailboxId;
+    @Mock private MessageId.Factory messageIdFactory;
 
-    @InjectMocks
     private StoreMailboxManager storeMailboxManager;
 
+
+    @SuppressWarnings("unchecked")
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
 
         when(mailboxSessionMapperFactory.getMailboxMapper(eq(session))).thenReturn(mailboxMapper);
+        when(mailboxSessionMapperFactory.getAnnotationMapper(eq(session))).thenReturn(annotationMapper);
         when(mailbox.getMailboxId()).thenReturn(mailboxId);
-        when(mailboxSessionMapperFactory.getAnnotationMapper(eq(mailboxId), eq(session))).thenReturn(annotationMapper);
+        when(mailboxMapper.findMailboxByPath(eq(mailboxPath))).thenReturn(mailbox);
+        when(annotationMapper.execute(any(Mapper.Transaction.class))).thenAnswer(new Answer<Object>() {
+            @Override
+            public Object answer(InvocationOnMock invocationOnMock) throws Throwable {
+                Mapper.Transaction<?> transaction = (Mapper.Transaction<?>) invocationOnMock.getArguments()[0];
+                return transaction.run();
+            }
+        });
 
-        storeMailboxManager = new StoreMailboxManager(mailboxSessionMapperFactory, authenticator, aclResolver, groupMembershipResolver, messageParser);
+        storeMailboxManager = spy(new StoreMailboxManager(mailboxSessionMapperFactory, authenticator, authorizator, aclResolver, groupMembershipResolver, 
+                messageParser, messageIdFactory, MailboxConstants.DEFAULT_LIMIT_ANNOTATIONS_ON_MAILBOX, MailboxConstants.DEFAULT_LIMIT_ANNOTATION_SIZE));
+        storeMailboxManager.init();
     }
 
     @Test(expected = MailboxException.class)
@@ -97,7 +118,7 @@ public class StoreMailboxManagerAnnotationTest {
         when(mailboxMapper.findMailboxByPath(eq(mailboxPath))).thenReturn(mailbox);
         storeMailboxManager.updateAnnotations(mailboxPath, session, ANNOTATIONS);
 
-        verify(annotationMapper, times(2)).insertAnnotation(any(MailboxAnnotation.class));
+        verify(annotationMapper, times(2)).insertAnnotation(eq(mailboxId), any(MailboxAnnotation.class));
     }
 
     @Test
@@ -105,8 +126,8 @@ public class StoreMailboxManagerAnnotationTest {
         when(mailboxMapper.findMailboxByPath(eq(mailboxPath))).thenReturn(mailbox);
         storeMailboxManager.updateAnnotations(mailboxPath, session, ANNOTATIONS_WITH_NIL_ENTRY);
 
-        verify(annotationMapper, times(1)).insertAnnotation(eq(PRIVATE_ANNOTATION));
-        verify(annotationMapper, times(1)).deleteAnnotation(eq("/shared/comment"));
+        verify(annotationMapper, times(1)).insertAnnotation(eq(mailboxId), eq(PRIVATE_ANNOTATION));
+        verify(annotationMapper, times(1)).deleteAnnotation(eq(mailboxId), eq(SHARED_KEY));
     }
 
     @Test(expected = MailboxException.class)
@@ -118,7 +139,7 @@ public class StoreMailboxManagerAnnotationTest {
     @Test
     public void getAllAnnotationsShouldReturnEmptyForNonStoredAnnotation() throws Exception {
         when(mailboxMapper.findMailboxByPath(eq(mailboxPath))).thenReturn(mailbox);
-        when(annotationMapper.getAllAnnotations()).thenReturn(Collections.<MailboxAnnotation> emptyList());
+        when(annotationMapper.getAllAnnotations(eq(mailboxId))).thenReturn(Collections.<MailboxAnnotation> emptyList());
 
         assertThat(storeMailboxManager.getAllAnnotations(mailboxPath, session)).isEmpty();
     }
@@ -126,7 +147,7 @@ public class StoreMailboxManagerAnnotationTest {
     @Test
     public void getAllAnnotationsShouldReturnStoredAnnotation() throws Exception {
         when(mailboxMapper.findMailboxByPath(eq(mailboxPath))).thenReturn(mailbox);
-        when(annotationMapper.getAllAnnotations()).thenReturn(ANNOTATIONS);
+        when(annotationMapper.getAllAnnotations(eq(mailboxId))).thenReturn(ANNOTATIONS);
 
         assertThat(storeMailboxManager.getAllAnnotations(mailboxPath, session)).isEqualTo(ANNOTATIONS);
     }
@@ -140,9 +161,8 @@ public class StoreMailboxManagerAnnotationTest {
     @Test
     public void getAnnotationsByKeysShouldRetrieveStoreAnnotationsByKey() throws Exception {
         when(mailboxMapper.findMailboxByPath(eq(mailboxPath))).thenReturn(mailbox);
-        when(annotationMapper.getAnnotationsByKeys(KEYS)).thenReturn(ANNOTATIONS);
+        when(annotationMapper.getAnnotationsByKeys(eq(mailboxId), eq(KEYS))).thenReturn(ANNOTATIONS);
 
         assertThat(storeMailboxManager.getAnnotationsByKeys(mailboxPath, session, KEYS)).isEqualTo(ANNOTATIONS);
     }
-
 }

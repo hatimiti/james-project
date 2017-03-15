@@ -30,15 +30,18 @@ import org.apache.james.jmap.methods.ValueWithId.MessageWithId;
 import org.apache.james.jmap.model.CreationMessage;
 import org.apache.james.jmap.model.CreationMessage.DraftEmailer;
 import org.apache.james.jmap.model.CreationMessageId;
-import org.apache.james.mailbox.store.mail.model.AttachmentId;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
-import org.apache.james.mailbox.store.mail.model.impl.Cid;
+import org.apache.james.mailbox.model.AttachmentId;
+import org.apache.james.mailbox.model.Cid;
+import org.apache.james.mailbox.model.MessageAttachment;
 import org.apache.james.mime4j.Charsets;
+import org.apache.james.mime4j.codec.EncoderUtil;
+import org.apache.james.mime4j.codec.EncoderUtil.Usage;
 import org.apache.james.mime4j.dom.Entity;
 import org.apache.james.mime4j.dom.Message;
 import org.apache.james.mime4j.dom.Multipart;
 import org.apache.james.mime4j.dom.TextBody;
 import org.apache.james.mime4j.dom.address.Mailbox;
+import org.apache.james.mime4j.dom.field.ContentTypeField;
 import org.apache.james.mime4j.message.BasicBodyFactory;
 import org.apache.james.mime4j.stream.Field;
 import org.junit.Test;
@@ -105,7 +108,7 @@ public class MIMEMessageConverterTest {
         ZonedDateTime messageDate = ZonedDateTime.ofInstant(now, ZoneId.systemDefault());
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .date(messageDate)
@@ -120,13 +123,36 @@ public class MIMEMessageConverterTest {
     }
 
     @Test
+    public void convertToMimeShouldSetQuotedPrintableContentTransferEncodingWhenText() {
+        // Given
+        MIMEMessageConverter sut = new MIMEMessageConverter();
+
+        CreationMessage testMessage = CreationMessage.builder()
+                .mailboxId("dead-bada55")
+                .subject("subject")
+                .from(DraftEmailer.builder().name("sender").build())
+                .htmlBody("Hello <b>all</b>!")
+                .build();
+
+        // When
+        Message result = sut.convertToMime(new ValueWithId.CreationMessageEntry(
+                CreationMessageId.of("user|mailbox|1"), testMessage), ImmutableList.of());
+
+        // Then
+        assertThat(result.getHeader()
+                .getField("Content-Transfer-Encoding")
+                .getBody())
+            .isEqualTo("quoted-printable");
+    }
+
+    @Test
     public void convertToMimeShouldSetTextBodyWhenProvided() {
         // Given
         MIMEMessageConverter sut = new MIMEMessageConverter();
         TextBody expected = new BasicBodyFactory().textBody("Hello all!", Charsets.UTF_8);
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .textBody("Hello all!")
@@ -147,7 +173,7 @@ public class MIMEMessageConverterTest {
         TextBody expected = new BasicBodyFactory().textBody("", Charsets.UTF_8);
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .build();
@@ -167,7 +193,7 @@ public class MIMEMessageConverterTest {
         TextBody expected = new BasicBodyFactory().textBody("Hello <b>all</b>!", Charsets.UTF_8);
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .htmlBody("Hello <b>all</b>!")
@@ -187,7 +213,7 @@ public class MIMEMessageConverterTest {
         MIMEMessageConverter sut = new MIMEMessageConverter();
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .textBody("Hello all!")
@@ -212,7 +238,7 @@ public class MIMEMessageConverterTest {
         MIMEMessageConverter sut = new MIMEMessageConverter();
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .textBody("Hello all!")
@@ -223,9 +249,11 @@ public class MIMEMessageConverterTest {
                 "Content-Type: multipart/alternative;\r\n" +
                 " boundary=\"-=Part.1.";
         String expectedPart1 = "Content-Type: text/plain; charset=UTF-8\r\n" +
+                "Content-Transfer-Encoding: quoted-printable\r\n" +
                 "\r\n" +
                 "Hello all!\r\n";
         String expectedPart2 = "Content-Type: text/html; charset=UTF-8\r\n" +
+                "Content-Transfer-Encoding: quoted-printable\r\n" +
                 "\r\n" +
                 "Hello <b>all</b>!\r\n";
 
@@ -246,7 +274,7 @@ public class MIMEMessageConverterTest {
         MIMEMessageConverter sut = new MIMEMessageConverter();
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .textBody("Hello all!")
@@ -266,7 +294,7 @@ public class MIMEMessageConverterTest {
         MIMEMessageConverter sut = new MIMEMessageConverter();
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .htmlBody("Hello <b>all<b>!")
@@ -287,7 +315,7 @@ public class MIMEMessageConverterTest {
         TextBody expected = new BasicBodyFactory().textBody("", Charsets.UTF_8);
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .htmlBody("")
@@ -309,7 +337,7 @@ public class MIMEMessageConverterTest {
         TextBody expected = new BasicBodyFactory().textBody("", Charsets.UTF_8);
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .textBody("")
@@ -330,7 +358,7 @@ public class MIMEMessageConverterTest {
         MIMEMessageConverter sut = new MIMEMessageConverter();
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .htmlBody("Hello <b>all<b>!")
@@ -341,7 +369,7 @@ public class MIMEMessageConverterTest {
         String text = "123456";
         TextBody expectedBody = new BasicBodyFactory().textBody(text.getBytes(), Charsets.UTF_8);
         MessageAttachment attachment = MessageAttachment.builder()
-                .attachment(org.apache.james.mailbox.store.mail.model.Attachment.builder()
+                .attachment(org.apache.james.mailbox.model.Attachment.builder()
                     .attachmentId(AttachmentId.from("blodId"))
                     .bytes(text.getBytes())
                     .type(expectedMimeType)
@@ -364,6 +392,7 @@ public class MIMEMessageConverterTest {
         assertThat(attachmentPart.getDispositionType()).isEqualTo("inline");
         assertThat(attachmentPart.getMimeType()).isEqualTo(expectedMimeType);
         assertThat(attachmentPart.getHeader().getField("Content-ID").getBody()).isEqualTo(expectedCID);
+        assertThat(attachmentPart.getContentTransferEncoding()).isEqualTo("base64");
     }
 
     @Test
@@ -372,7 +401,7 @@ public class MIMEMessageConverterTest {
         MIMEMessageConverter sut = new MIMEMessageConverter();
 
         CreationMessage testMessage = CreationMessage.builder()
-                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .mailboxId("dead-bada55")
                 .subject("subject")
                 .from(DraftEmailer.builder().name("sender").build())
                 .textBody("Hello all!")
@@ -386,7 +415,7 @@ public class MIMEMessageConverterTest {
         String text = "123456";
         TextBody expectedAttachmentBody = new BasicBodyFactory().textBody(text.getBytes(), Charsets.UTF_8);
         MessageAttachment attachment = MessageAttachment.builder()
-                .attachment(org.apache.james.mailbox.store.mail.model.Attachment.builder()
+                .attachment(org.apache.james.mailbox.model.Attachment.builder()
                     .attachmentId(AttachmentId.from("blodId"))
                     .bytes(text.getBytes())
                     .type(expectedMimeType)
@@ -419,5 +448,76 @@ public class MIMEMessageConverterTest {
         assertThat(attachmentPart.getDispositionType()).isEqualTo("inline");
         assertThat(attachmentPart.getMimeType()).isEqualTo(expectedMimeType);
         assertThat(attachmentPart.getHeader().getField("Content-ID").getBody()).isEqualTo(expectedCID);
+    }
+
+    @Test
+    public void convertShouldEncodeWhenNonASCIICharacters() {
+        // Given
+        MIMEMessageConverter sut = new MIMEMessageConverter();
+
+        CreationMessage testMessage = CreationMessage.builder()
+                .mailboxId("dead-bada55")
+                .subject("subject")
+                .from(DraftEmailer.builder().name("sender").build())
+                .htmlBody("Some non-ASCII characters: áÄÎßÿ")
+                .build();
+
+        // When
+        ImmutableList<MessageAttachment> attachments = ImmutableList.of();
+        byte[] convert = sut.convert(new ValueWithId.CreationMessageEntry(
+                CreationMessageId.of("user|mailbox|1"), testMessage), attachments);
+
+        String expectedEncodedContent = "Some non-ASCII characters: =C3=A1=C3=84=C3=8E=C3=9F=C3=BF";
+
+        // Then
+        String actual = new String(convert, Charsets.US_ASCII);
+        assertThat(actual).contains(expectedEncodedContent);
+    }
+
+    @Test
+    public void convertToMimeShouldAddAttachmentAndContainsIndicationAboutTheWayToEncodeFilenamesAttachmentInTheInputStreamWhenSending() {
+        // Given
+        MIMEMessageConverter sut = new MIMEMessageConverter();
+
+        CreationMessage testMessage = CreationMessage.builder()
+                .mailboxIds(ImmutableList.of("dead-bada55"))
+                .subject("subject")
+                .from(DraftEmailer.builder().name("sender").build())
+                .htmlBody("Hello <b>all<b>!")
+                .build();
+
+        String expectedCID = "cid";
+        String expectedMimeType = "image/png";
+        String text = "123456";
+        String name = "ديناصور.png";
+        String expectedName = EncoderUtil.encodeEncodedWord(name, Usage.TEXT_TOKEN);
+        MessageAttachment attachment = MessageAttachment.builder()
+                .name(name)
+                .attachment(org.apache.james.mailbox.model.Attachment.builder()
+                    .attachmentId(AttachmentId.from("blodId"))
+                    .bytes(text.getBytes())
+                    .type(expectedMimeType)
+                    .build())
+                .cid(Cid.from(expectedCID))
+                .isInline(true)
+                .build();
+
+        // When
+        Message result = sut.convertToMime(new ValueWithId.CreationMessageEntry(
+                CreationMessageId.of("user|mailbox|1"), testMessage), ImmutableList.of(attachment));
+
+        // Then
+        assertThat(result.getBody()).isInstanceOf(Multipart.class);
+        assertThat(result.isMultipart()).isTrue();
+        Multipart typedResult = (Multipart)result.getBody();
+        assertThat(typedResult.getBodyParts()).hasSize(2);
+
+        Entity attachmentPart = typedResult.getBodyParts().get(1);
+        String filename = getNameParameterValue(attachmentPart);
+        assertThat(filename).isEqualTo(expectedName);
+    }
+
+    private String getNameParameterValue(Entity attachmentPart) {
+        return ((ContentTypeField) attachmentPart.getHeader().getField("Content-Type")).getParameter("name");
     }
 }

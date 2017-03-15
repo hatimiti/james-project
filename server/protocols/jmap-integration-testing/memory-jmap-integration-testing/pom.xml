@@ -24,7 +24,7 @@
     <parent>
         <artifactId>jmap-integration-testing</artifactId>
         <groupId>org.apache.james</groupId>
-        <version>3.0.0-beta5-SNAPSHOT</version>
+        <version>3.0.0-beta6-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -154,6 +154,12 @@
                     <type>test-jar</type>
                     <scope>test</scope>
                  </dependency>
+                 <dependency>
+                    <groupId>${project.groupId}</groupId>
+                    <artifactId>james-server-guice-jmap</artifactId>
+                    <type>test-jar</type>
+                    <scope>test</scope>
+                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>
                     <artifactId>james-server-jmap-integration-testing</artifactId>
@@ -162,7 +168,18 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>
+                    <artifactId>james-server-testing</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.james</groupId>
                     <artifactId>james-server-memory-guice</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>james-server-memory-guice</artifactId>
+                    <type>test-jar</type>
                     <scope>test</scope>
                 </dependency>
                 <dependency>

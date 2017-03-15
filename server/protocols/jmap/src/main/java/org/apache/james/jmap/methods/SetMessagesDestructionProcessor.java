@@ -19,70 +19,65 @@
 
 package org.apache.james.jmap.methods;
 
-import java.util.Iterator;
+import static org.apache.james.jmap.methods.Method.JMAP_PREFIX;
+
+import java.util.List;
 import java.util.function.Function;
 
 import javax.inject.Inject;
 
 import org.apache.james.jmap.exceptions.MessageNotFoundException;
-import org.apache.james.jmap.model.MessageId;
 import org.apache.james.jmap.model.SetError;
 import org.apache.james.jmap.model.SetMessagesRequest;
 import org.apache.james.jmap.model.SetMessagesResponse;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageIdManager;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.model.MessageRange;
-import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
-import org.apache.james.mailbox.store.mail.MailboxMapperFactory;
-import org.apache.james.mailbox.store.mail.MessageMapper;
-import org.apache.james.mailbox.store.mail.model.Mailbox;
-import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.model.FetchGroupImpl;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.mailbox.model.MessageResult;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.steveash.guavate.Guavate;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 
 public class SetMessagesDestructionProcessor implements SetMessagesProcessor {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SetMessagesCreationProcessor.class);
-    private static final int LIMIT_BY_ONE = 1;
 
-    private final MailboxMapperFactory mailboxMapperFactory;
-    private final MailboxSessionMapperFactory mailboxSessionMapperFactory;
+    private final MessageIdManager messageIdManager;
+    private final MetricFactory metricFactory;
 
     @Inject
     @VisibleForTesting
-    SetMessagesDestructionProcessor(MailboxMapperFactory mailboxMapperFactory,
-                                           MailboxSessionMapperFactory mailboxSessionMapperFactory) {
-        this.mailboxMapperFactory = mailboxMapperFactory;
-        this.mailboxSessionMapperFactory = mailboxSessionMapperFactory;
+    SetMessagesDestructionProcessor(MessageIdManager messageIdManager, MetricFactory metricFactory) {
+        this.messageIdManager = messageIdManager;
+        this.metricFactory = metricFactory;
     }
 
     @Override
     public SetMessagesResponse process(SetMessagesRequest request, MailboxSession mailboxSession) {
-        MessageMapper messageMapper;
-        try {
-            messageMapper = mailboxSessionMapperFactory.createMessageMapper(mailboxSession);
-        } catch (MailboxException e) {
-            throw Throwables.propagate(e);
-        }
-        return request.getDestroy().stream()
-                .map(delete(messageMapper, mailboxSession))
-                .reduce(SetMessagesResponse.builder(),  SetMessagesResponse.Builder::accumulator, SetMessagesResponse.Builder::combiner)
-                .build();
+        TimeMetric timeMetric = metricFactory.timer(JMAP_PREFIX + "SetMessageDestructionProcessor");
+
+        SetMessagesResponse result = request.getDestroy().stream()
+            .map(delete(mailboxSession))
+            .reduce(SetMessagesResponse.builder(), SetMessagesResponse.Builder::accumulator, SetMessagesResponse.Builder::combiner)
+            .build();
+
+        timeMetric.stopAndPublish();
+        return result;
     }
 
-    private Function<? super MessageId, SetMessagesResponse> delete(MessageMapper messageMapper, MailboxSession mailboxSession) {
+    private Function<? super MessageId, SetMessagesResponse> delete(MailboxSession mailboxSession) {
         return (messageId) -> {
             try {
-                Mailbox mailbox = mailboxMapperFactory
-                        .getMailboxMapper(mailboxSession)
-                        .findMailboxByPath(messageId.getMailboxPath());
-
-                MailboxMessage mailboxMessage = getMailboxMessage(messageMapper, messageId, mailbox);
-
-                messageMapper.delete(mailbox, mailboxMessage);
+                List<MailboxId> mailboxes = listContainingMailboxes(messageId, mailboxSession);
+                messageIdManager.delete(messageId, mailboxes, mailboxSession);
                 return SetMessagesResponse.builder().destroyed(messageId).build();
             } catch (MessageNotFoundException e) {
                 return SetMessagesResponse.builder().notDestroyed(messageId,
@@ -103,13 +98,13 @@ public class SetMessagesDestructionProcessor implements SetMessagesProcessor {
         };
     }
 
-    private MailboxMessage getMailboxMessage(MessageMapper messageMapper, MessageId messageId, Mailbox mailbox)
-            throws MailboxException, MessageNotFoundException {
-
-        Iterator<MailboxMessage> mailboxMessage = messageMapper.findInMailbox(mailbox, MessageRange.one(messageId.getUid()), MessageMapper.FetchType.Metadata, LIMIT_BY_ONE);
-        if (!mailboxMessage.hasNext()) {
+    private List<MailboxId> listContainingMailboxes(MessageId messageId, MailboxSession mailboxSession) throws MailboxException, MessageNotFoundException {
+        List<MessageResult> messages = messageIdManager.getMessages(ImmutableList.of(messageId), FetchGroupImpl.MINIMAL, mailboxSession);
+        if (messages.isEmpty()) {
             throw new MessageNotFoundException();
         }
-        return mailboxMessage.next();
+        return messages.stream()
+                .map(MessageResult::getMailboxId)
+                .collect(Guavate.toImmutableList());
     }
 }

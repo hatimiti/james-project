@@ -19,15 +19,57 @@
 
 package org.apache.james.jmap.utils;
 
-import org.junit.Ignore;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import org.apache.james.jmap.model.mailbox.Role;
+import org.apache.james.mailbox.MailboxManager;
+import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageManager;
+import org.apache.james.mailbox.exception.MailboxNotFoundException;
+import org.apache.james.mailbox.manager.MailboxManagerFixture;
+import org.apache.james.mailbox.mock.MockMailboxSession;
+import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class SystemMailboxesProviderImplTest {
 
-    @Ignore("1716 this class needs a test suite")
-    @Test
-    public void missingTestSuite() {
-        //TODO this class needs a test suite
+    private MailboxSession mailboxSession = new MockMailboxSession("user");
+    private SystemMailboxesProviderImpl systemMailboxProvider;
+
+    private MailboxManager mailboxManager;
+
+    private MessageManager inboxMessageManager;
+
+    @Rule
+    public ExpectedException expectedException = ExpectedException.none();
+
+    @Before
+    public void setUp() throws Exception {
+        mailboxManager = mock(MailboxManager.class);
+        inboxMessageManager = mock(MessageManager.class);
+
+        systemMailboxProvider = new SystemMailboxesProviderImpl(mailboxManager);
     }
-    
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void getMailboxByRoleShouldReturnEmptyWhenNoMailbox() throws Exception {
+        when(mailboxManager.getMailbox(eq(MailboxManagerFixture.MAILBOX_PATH1), eq(mailboxSession))).thenThrow(MailboxNotFoundException.class);
+
+        assertThat(systemMailboxProvider.getMailboxByRole(Role.INBOX, mailboxSession)).isEmpty();
+    }
+
+    @Test
+    public void getMailboxByRoleShouldReturnMailboxByRole() throws Exception {
+        when(mailboxManager.getMailbox(eq(MailboxManagerFixture.MAILBOX_PATH1), eq(mailboxSession))).thenReturn(inboxMessageManager);
+
+        assertThat(systemMailboxProvider.getMailboxByRole(Role.INBOX, mailboxSession))
+            .hasSize(1)
+            .containsOnly(inboxMessageManager);
+    }
 }

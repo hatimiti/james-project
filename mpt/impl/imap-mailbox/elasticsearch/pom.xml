@@ -24,7 +24,7 @@
     <parent>
         <artifactId>apache-james-mpt-imapmailbox</artifactId>
         <groupId>org.apache.james</groupId>
-        <version>0.2-SNAPSHOT</version>
+        <version>3.0.0-beta6-SNAPSHOT</version>
     </parent>
 
     <artifactId>apache-james-mpt-imapmailbox-elasticsearch</artifactId>
@@ -128,16 +128,21 @@
             <dependencies>
                 <dependency>
                     <groupId>org.apache.james</groupId>
+                    <artifactId>apache-james-backends-es</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>apache-james-backends-es</artifactId>
+                    <type>test-jar</type>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.james</groupId>
                     <artifactId>apache-james-mailbox-api</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>
                     <artifactId>apache-james-mailbox-elasticsearch</artifactId>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.james</groupId>
-                    <artifactId>apache-james-mailbox-elasticsearch</artifactId>
-                    <type>test-jar</type>
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>

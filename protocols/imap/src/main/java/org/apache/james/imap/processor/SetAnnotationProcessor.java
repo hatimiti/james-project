@@ -29,19 +29,23 @@ import org.apache.james.imap.api.message.response.StatusResponse;
 import org.apache.james.imap.api.message.response.StatusResponseFactory;
 import org.apache.james.imap.api.process.ImapProcessor;
 import org.apache.james.imap.api.process.ImapSession;
+import org.apache.james.imap.main.PathConverter;
 import org.apache.james.imap.message.request.SetAnnotationRequest;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.exception.AnnotationException;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.MailboxNotFoundException;
 import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.metrics.api.MetricFactory;
 
 import com.google.common.collect.ImmutableList;
 
 public class SetAnnotationProcessor extends AbstractMailboxProcessor<SetAnnotationRequest> implements CapabilityImplementingProcessor {
 
-    public SetAnnotationProcessor(ImapProcessor next, MailboxManager mailboxManager, StatusResponseFactory factory) {
-        super(SetAnnotationRequest.class, next, mailboxManager, factory);
+    public SetAnnotationProcessor(ImapProcessor next, MailboxManager mailboxManager, StatusResponseFactory factory,
+            MetricFactory metricFactory) {
+        super(SetAnnotationRequest.class, next, mailboxManager, factory, metricFactory);
     }
 
     public List<String> getImplementedCapabilities(ImapSession session) {
@@ -54,7 +58,7 @@ public class SetAnnotationProcessor extends AbstractMailboxProcessor<SetAnnotati
         final MailboxSession mailboxSession = ImapSessionUtils.getMailboxSession(session);
         final String mailboxName = message.getMailboxName();
         try {
-            MailboxPath mailboxPath = buildFullPath(session, mailboxName);
+            MailboxPath mailboxPath = PathConverter.forSession(session).buildFullPath(mailboxName);
 
             mailboxManager.updateAnnotations(mailboxPath, mailboxSession, message.getMailboxAnnotations());
 
@@ -62,6 +66,9 @@ public class SetAnnotationProcessor extends AbstractMailboxProcessor<SetAnnotati
         } catch (MailboxNotFoundException e) {
             session.getLog().info(command.getName() + " failed for mailbox " + mailboxName, e);
             no(command, tag, responder, HumanReadableText.FAILURE_NO_SUCH_MAILBOX, StatusResponse.ResponseCode.tryCreate());
+        } catch (AnnotationException e) {
+            session.getLog().info(command.getName() + " failed for mailbox " + mailboxName, e);
+            no(command, tag, responder, new HumanReadableText(HumanReadableText.MAILBOX_ANNOTATION_KEY, e.getMessage()));
         } catch (MailboxException e) {
             session.getLog().info(command.getName() + " failed for mailbox " + mailboxName, e);
             no(command, tag, responder, HumanReadableText.GENERIC_FAILURE_DURING_PROCESSING);

@@ -19,6 +19,8 @@
 
 package org.apache.james.jmap.methods;
 
+import static org.apache.james.jmap.methods.Method.JMAP_PREFIX;
+
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -27,6 +29,7 @@ import javax.inject.Inject;
 
 import org.apache.james.jmap.exceptions.MailboxHasChildException;
 import org.apache.james.jmap.exceptions.SystemMailboxNotUpdatableException;
+import org.apache.james.jmap.model.MailboxFactory;
 import org.apache.james.jmap.model.SetError;
 import org.apache.james.jmap.model.SetMailboxesRequest;
 import org.apache.james.jmap.model.SetMailboxesResponse;
@@ -37,7 +40,13 @@ import org.apache.james.jmap.utils.MailboxUtils;
 import org.apache.james.jmap.utils.SortingHierarchicalCollections;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.SubscriptionManager;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.exception.TooLongMailboxNameException;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,66 +58,84 @@ public class SetMailboxesDestructionProcessor implements SetMailboxesProcessor {
     private static final Logger LOGGER = LoggerFactory.getLogger(SetMailboxesDestructionProcessor.class);
 
     private final MailboxManager mailboxManager;
-    private final SortingHierarchicalCollections<Map.Entry<String, Mailbox>, String> sortingHierarchicalCollections;
+    private final SubscriptionManager subscriptionManager;
+    private final SortingHierarchicalCollections<Map.Entry<MailboxId, Mailbox>, MailboxId> sortingHierarchicalCollections;
     private final MailboxUtils mailboxUtils;
+    private final MailboxFactory mailboxFactory;
+    private final MetricFactory metricFactory;
 
     @Inject
     @VisibleForTesting
-    SetMailboxesDestructionProcessor(MailboxManager mailboxManager, MailboxUtils mailboxUtils) {
+    SetMailboxesDestructionProcessor(MailboxManager mailboxManager, SubscriptionManager subscriptionManager, MailboxUtils mailboxUtils, MailboxFactory mailboxFactory, MetricFactory metricFactory) {
         this.mailboxManager = mailboxManager;
+        this.subscriptionManager = subscriptionManager;
+        this.metricFactory = metricFactory;
         this.sortingHierarchicalCollections =
             new SortingHierarchicalCollections<>(
                     Entry::getKey,
                     x -> x.getValue().getParentId());
         this.mailboxUtils = mailboxUtils;
+        this.mailboxFactory = mailboxFactory;
     }
 
     public SetMailboxesResponse process(SetMailboxesRequest request, MailboxSession mailboxSession) {
-        ImmutableMap<String, Mailbox> idToMailbox = mapDestroyRequests(request, mailboxSession);
+        TimeMetric timeMetric = metricFactory.timer(JMAP_PREFIX + "SetMailboxesDestructionProcessor");
+        ImmutableMap<MailboxId, Mailbox> idToMailbox = mapDestroyRequests(request, mailboxSession);
 
         SetMailboxesResponse.Builder builder = SetMailboxesResponse.builder();
         sortingHierarchicalCollections.sortFromLeafToRoot(idToMailbox.entrySet())
             .forEach(entry -> destroyMailbox(entry, mailboxSession, builder));
 
         notDestroyedRequests(request, idToMailbox, builder);
+        timeMetric.stopAndPublish();
         return builder.build();
     }
 
-    private ImmutableMap<String, Mailbox> mapDestroyRequests(SetMailboxesRequest request, MailboxSession mailboxSession) {
-        ImmutableMap.Builder<String, Mailbox> idToMailboxBuilder = ImmutableMap.builder(); 
+    private ImmutableMap<MailboxId, Mailbox> mapDestroyRequests(SetMailboxesRequest request, MailboxSession mailboxSession) {
+        ImmutableMap.Builder<MailboxId, Mailbox> idToMailboxBuilder = ImmutableMap.builder(); 
         request.getDestroy().stream()
-            .map(id -> mailboxUtils.mailboxFromMailboxId(id, mailboxSession))
+            .map(id -> mailboxFactory.builder()
+                    .id(id)
+                    .session(mailboxSession)
+                    .build())
             .filter(Optional::isPresent)
             .map(Optional::get)
             .forEach(mailbox -> idToMailboxBuilder.put(mailbox.getId(), mailbox));
         return idToMailboxBuilder.build();
     }
 
-    private void notDestroyedRequests(SetMailboxesRequest request, ImmutableMap<String, Mailbox> idToMailbox, SetMailboxesResponse.Builder builder) {
+    private void notDestroyedRequests(SetMailboxesRequest request, ImmutableMap<MailboxId, Mailbox> idToMailbox, SetMailboxesResponse.Builder builder) {
         request.getDestroy().stream()
             .filter(id -> !idToMailbox.containsKey(id))
             .forEach(id -> notDestroy(id, builder));
     }
 
-    private void destroyMailbox(Entry<String, Mailbox> entry, MailboxSession mailboxSession, SetMailboxesResponse.Builder builder) {
+    private void destroyMailbox(Entry<MailboxId, Mailbox> entry, MailboxSession mailboxSession, SetMailboxesResponse.Builder builder) {
         try {
             Mailbox mailbox = entry.getValue();
             preconditions(mailbox, mailboxSession);
 
-            mailboxManager.deleteMailbox(mailboxUtils.getMailboxPath(mailbox, mailboxSession), mailboxSession);
+            MailboxPath mailboxPath = mailboxManager.getMailbox(mailbox.getId(), mailboxSession).getMailboxPath();
+            mailboxManager.deleteMailbox(mailboxPath, mailboxSession);
+            subscriptionManager.unsubscribe(mailboxSession, mailboxPath.getName());
             builder.destroyed(entry.getKey());
         } catch (MailboxHasChildException e) {
             builder.notDestroyed(entry.getKey(), SetError.builder()
                     .type("mailboxHasChild")
-                    .description(String.format("The mailbox '%s' has a child.", entry.getKey()))
+                    .description(String.format("The mailbox '%s' has a child.", entry.getKey().serialize()))
                     .build());
         } catch (SystemMailboxNotUpdatableException e) {
             builder.notDestroyed(entry.getKey(), SetError.builder()
-                    .type("invalidArguments")
-                    .description(String.format("The mailbox '%s' is a system mailbox.", entry.getKey()))
-                    .build());
+                .type("invalidArguments")
+                .description(String.format("The mailbox '%s' is a system mailbox.", entry.getKey().serialize()))
+                .build());
+        } catch (TooLongMailboxNameException e) {
+            builder.notDestroyed(entry.getKey(), SetError.builder()
+                .type("invalidArguments")
+                .description("The mailbox name length is too long")
+                .build());
         } catch (MailboxException e) {
-            String message = String.format("An error occurred when deleting the mailbox '%s'", entry.getKey());
+            String message = String.format("An error occurred when deleting the mailbox '%s'", entry.getKey().serialize());
             LOGGER.error(message, e);
             builder.notDestroyed(entry.getKey(), SetError.builder()
                     .type("anErrorOccurred")
@@ -122,7 +149,7 @@ public class SetMailboxesDestructionProcessor implements SetMailboxesProcessor {
         checkRole(mailbox.getRole());
     }
 
-    private void checkForChild(String id, MailboxSession mailboxSession) throws MailboxHasChildException, MailboxException {
+    private void checkForChild(MailboxId id, MailboxSession mailboxSession) throws MailboxHasChildException, MailboxException {
         if (mailboxUtils.hasChildren(id, mailboxSession)) {
             throw new MailboxHasChildException();
         }
@@ -134,10 +161,10 @@ public class SetMailboxesDestructionProcessor implements SetMailboxesProcessor {
         }
     }
 
-    private void notDestroy(String id, Builder builder) {
+    private void notDestroy(MailboxId id, Builder builder) {
         builder.notDestroyed(id, SetError.builder()
                 .type("notFound")
-                .description(String.format("The mailbox '%s' was not found.", id))
+                .description(String.format("The mailbox '%s' was not found.", id.serialize()))
                 .build());
     }
 }

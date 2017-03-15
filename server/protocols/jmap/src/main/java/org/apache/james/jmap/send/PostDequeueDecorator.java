@@ -19,48 +19,48 @@
 package org.apache.james.jmap.send;
 
 import java.io.Serializable;
-import java.util.Iterator;
+import java.util.List;
 
 import org.apache.james.jmap.exceptions.MailboxRoleNotFoundException;
-import org.apache.james.jmap.model.MessageId;
 import org.apache.james.jmap.model.mailbox.Role;
 import org.apache.james.jmap.send.exception.MailShouldBeInOutboxException;
-import org.apache.james.jmap.send.exception.MessageIdNotFoundException;
+import org.apache.james.jmap.utils.SystemMailboxesProvider;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageIdManager;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.model.MailboxMetaData;
-import org.apache.james.mailbox.model.MailboxPath;
-import org.apache.james.mailbox.model.MailboxQuery;
-import org.apache.james.mailbox.model.MessageRange;
-import org.apache.james.mailbox.store.mail.MailboxMapperFactory;
-import org.apache.james.mailbox.store.mail.MessageMapper;
-import org.apache.james.mailbox.store.mail.MessageMapperFactory;
-import org.apache.james.mailbox.store.mail.model.Mailbox;
-import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.model.FetchGroupImpl;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.mailbox.model.MessageId.Factory;
+import org.apache.james.mailbox.model.MessageResult;
 import org.apache.james.queue.api.MailQueue.MailQueueException;
 import org.apache.james.queue.api.MailQueue.MailQueueItem;
 import org.apache.james.queue.api.MailQueueItemDecoratorFactory.MailQueueItemDecorator;
 import org.apache.mailet.Mail;
-import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.ImmutableList;
 
 public class PostDequeueDecorator extends MailQueueItemDecorator {
     private static final Logger LOG = LoggerFactory.getLogger(PostDequeueDecorator.class);
 
     private final MailboxManager mailboxManager;
-    private final MessageMapperFactory messageMapperFactory;
-    private final MailboxMapperFactory mailboxMapperFactory;
+    private final Factory messageIdFactory;
+    private final MessageIdManager messageIdManager;
+    private final SystemMailboxesProvider systemMailboxesProvider;
 
     public PostDequeueDecorator(MailQueueItem mailQueueItem,
-            MailboxManager mailboxManager,
-            MessageMapperFactory messageMapperFactory,
-            MailboxMapperFactory mailboxMapperFactory) {
+                                MailboxManager mailboxManager,
+                                Factory messageIdFactory,
+                                MessageIdManager messageIdManager,
+                                SystemMailboxesProvider systemMailboxesProvider) {
         super(mailQueueItem);
         this.mailboxManager = mailboxManager;
-        this.messageMapperFactory = messageMapperFactory;
-        this.mailboxMapperFactory = mailboxMapperFactory;
+        this.messageIdFactory = messageIdFactory;
+        this.messageIdManager = messageIdManager;
+        this.systemMailboxesProvider = systemMailboxesProvider;
     }
 
     @Override
@@ -72,12 +72,11 @@ public class PostDequeueDecorator extends MailQueueItemDecorator {
     public void done(boolean success) throws MailQueueException {
         mailQueueItem.done(success);
         if (success && mandatoryJmapMetaDataIsPresent()) {
-            MessageId messageId = MessageId.of((String) getMail().getAttribute(MailMetadata.MAIL_METADATA_MESSAGE_ID_ATTRIBUTE));
+            MessageId messageId = messageIdFactory.fromString((String) getMail().getAttribute(MailMetadata.MAIL_METADATA_MESSAGE_ID_ATTRIBUTE));
             String username = (String) getMail().getAttribute(MailMetadata.MAIL_METADATA_USERNAME_ATTRIBUTE);
             try {
                 MailboxSession mailboxSession = mailboxManager.createSystemSession(username, LOG);
-                Pair<MailboxMessage, MailboxPath> mailboxMessageAndMailboxPath = getMailboxMessageAndMailboxPath(messageId, mailboxSession);
-                moveFromOutboxToSent(mailboxMessageAndMailboxPath, mailboxSession);
+                moveFromOutboxToSent(messageId, mailboxSession);
             } catch (MailboxException e) {
                 throw new MailQueueException(e.getMessage(), e);
             }
@@ -95,9 +94,9 @@ public class PostDequeueDecorator extends MailQueueItemDecorator {
             return false;
         }
         try {
-            MessageId.of((String) messageId);
+            messageIdFactory.fromString((String) messageId);
         } catch (Exception e) {
-            LOG.error("Invalid messageId: " + (String) messageId);
+            LOG.error("Invalid messageId: " + messageId);
             return false;
         }
         return true;
@@ -108,48 +107,30 @@ public class PostDequeueDecorator extends MailQueueItemDecorator {
         return (username != null && username instanceof String);
     }
 
-    public Pair<MailboxMessage, MailboxPath> getMailboxMessageAndMailboxPath(MessageId messageId, MailboxSession mailboxSession) throws MailQueueException, MailboxException {
-        MailboxPath mailboxPath = messageId.getMailboxPath();
-        MessageMapper messageMapper = messageMapperFactory.getMessageMapper(mailboxSession);
-        Mailbox mailbox = mailboxMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(mailboxPath);
-        Iterator<MailboxMessage> resultIterator = messageMapper.findInMailbox(mailbox, MessageRange.one(messageId.getUid()), MessageMapper.FetchType.Full, 1);
-        if (resultIterator.hasNext()) {
-            return Pair.with(resultIterator.next(), mailboxPath);
-        } else {
-            throw new MessageIdNotFoundException(messageId);
+    private void moveFromOutboxToSent(MessageId messageId, MailboxSession mailboxSession) throws MailQueueException, MailboxException {
+        assertMessageBelongsToOutbox(messageId, mailboxSession);
+        messageIdManager.setInMailboxes(messageId, ImmutableList.of(getSentMailboxId(mailboxSession)), mailboxSession);
+    }
+
+    private void assertMessageBelongsToOutbox(MessageId messageId, MailboxSession mailboxSession) throws MailboxException, MailShouldBeInOutboxException {
+        MailboxId outboxMailboxId = getOutboxMailboxId(mailboxSession);
+        List<MessageResult> messages = messageIdManager.getMessages(ImmutableList.of(messageId), FetchGroupImpl.MINIMAL, mailboxSession);
+        for (MessageResult message: messages) {
+            if (message.getMailboxId().equals(outboxMailboxId)) {
+                return;
+            }
         }
+        throw new MailShouldBeInOutboxException(messageId);
     }
 
-    private void moveFromOutboxToSent(Pair<MailboxMessage, MailboxPath> mailboxMessageAndMailboxPath, MailboxSession mailboxSession) throws MailQueueException, MailboxException {
-        MailboxMessage mailboxMessage = mailboxMessageAndMailboxPath.getValue0();
-        MailboxPath outboxMailboxPath = mailboxMessageAndMailboxPath.getValue1();
-        ensureMailboxPathIsOutbox(outboxMailboxPath);
-        MailboxPath sentMailboxPath = getSentMailboxPath(mailboxSession);
-        
-        mailboxManager.moveMessages(MessageRange.one(mailboxMessage.getUid()), outboxMailboxPath, sentMailboxPath, mailboxSession);
-    }
-
-    private void ensureMailboxPathIsOutbox(MailboxPath outboxMailboxPath) throws MailShouldBeInOutboxException {
-        if (!hasRole(outboxMailboxPath, Role.OUTBOX)) {
-            throw new MailShouldBeInOutboxException(outboxMailboxPath);
-        }
-    }
-
-    private MailboxPath getSentMailboxPath(MailboxSession session) throws MailboxRoleNotFoundException, MailboxException {
-        MailboxQuery allUserMailboxesQuery = MailboxQuery.builder(session)
-            .privateUserMailboxes()
-            .build();
-        return mailboxManager.search(allUserMailboxesQuery, session)
-                .stream()
-                .map(MailboxMetaData::getPath)
-                .filter(path -> hasRole(path, Role.SENT))
-                .findFirst()
-                .orElseThrow(() -> new MailboxRoleNotFoundException(Role.SENT));
+    private MailboxId getSentMailboxId(MailboxSession session) throws MailboxRoleNotFoundException, MailboxException {
+        return systemMailboxesProvider.findMailbox(Role.SENT, session)
+            .getId();
     }
     
-    private boolean hasRole(MailboxPath mailBoxPath, Role role) {
-        return Role.from(mailBoxPath.getName())
-                .map(role::equals)
-                .orElse(false);
+    private MailboxId getOutboxMailboxId(MailboxSession session) throws MailboxRoleNotFoundException, MailboxException {
+        return systemMailboxesProvider.findMailbox(Role.OUTBOX, session)
+            .getId();
     }
+    
 }

@@ -20,11 +20,13 @@
 package org.apache.james.mailbox.store.mail.model.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.guava.api.Assertions.assertThat;
 
 import java.util.List;
 
-import org.apache.james.mailbox.store.mail.model.Attachment;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
+import org.apache.james.mailbox.model.Attachment;
+import org.apache.james.mailbox.model.Cid;
+import org.apache.james.mailbox.model.MessageAttachment;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -63,6 +65,13 @@ public class MessageParserTest {
     }
 
     @Test
+    public void getAttachmentsShouldRetrieveAttachmentNameWhenOneContainingNonASCIICharacters() throws Exception {
+        List<MessageAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/messageWithNonASCIIFilenameAttachment.eml"));
+        assertThat(attachments).hasSize(1);
+        assertThat(attachments.get(0).getName()).contains("ديناصور.odt");
+    }
+
+    @Test
     public void getAttachmentsShouldRetrieveEmptyNameWhenNone() throws Exception {
         List<MessageAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/oneAttachmentWithoutName.eml"));
 
@@ -92,6 +101,20 @@ public class MessageParserTest {
 
         assertThat(attachments).hasSize(1);
         assertThat(attachments.get(0).getAttachment().getType()).isEqualTo("application/octet-stream");
+    }
+
+    @Test
+    public void retrieveAttachmentsShouldNotFailOnMessagesWithManyHeaders() throws Exception {
+        List<MessageAttachment> messageAttachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/mailWithManyHeaders.eml"));
+
+        assertThat(messageAttachments).hasSize(1);
+    }
+
+    @Test
+    public void retrieveAttachmentsShouldNotFailOnMessagesWithLongHeaders() throws Exception {
+        List<MessageAttachment> messageAttachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/mailWithLongHeaders.eml"));
+
+        assertThat(messageAttachments).hasSize(1);
     }
 
     @Test
@@ -167,5 +190,26 @@ public class MessageParserTest {
         List<MessageAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/invitationEmailFromOP.eml"));
         
         assertThat(attachments).hasSize(6);
+    }
+
+    @Test
+    public void getAttachmentsShouldNotConsiderUnknownContentDispositionAsAttachments() throws Exception {
+        List<MessageAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/unknownDisposition.eml"));
+
+        assertThat(attachments).hasSize(0);
+    }
+
+    @Test
+    public void getAttachmentsShouldRetrieveAttachmentsWhenOneFailBecauseOfNonCIDForInlined() throws Exception {
+        List<MessageAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/multiAttachmentsWithOneWrongInlinedAttachment.eml"));
+
+        assertThat(attachments).hasSize(1);
+    }
+
+    @Test
+    public void getAttachmentsShouldRetrieveAttachmentsWhenOneFailOnWrongContentDisposition() throws Exception {
+        List<MessageAttachment> attachments = testee.retrieveAttachments(ClassLoader.getSystemResourceAsStream("eml/multiAttachmentsWithOneWrongContentDisposition.eml"));
+
+        assertThat(attachments).hasSize(2);
     }
 }

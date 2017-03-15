@@ -20,23 +20,24 @@ package org.apache.james.mailbox.elasticsearch.events;
 
 import static org.elasticsearch.index.query.QueryBuilders.termQuery;
 
-import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import javax.inject.Inject;
 
+import org.apache.james.backends.es.ElasticSearchIndexer;
 import org.apache.james.mailbox.MailboxManager.SearchCapabilities;
 import org.apache.james.mailbox.MailboxSession;
-import org.apache.james.mailbox.elasticsearch.ElasticSearchIndexer;
+import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.elasticsearch.json.JsonMessageConstants;
 import org.apache.james.mailbox.elasticsearch.json.MessageToElasticSearchJson;
 import org.apache.james.mailbox.elasticsearch.search.ElasticSearchSearcher;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.model.MultimailboxesSearchQuery;
 import org.apache.james.mailbox.model.SearchQuery;
 import org.apache.james.mailbox.model.UpdatedFlags;
@@ -48,6 +49,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.github.steveash.guavate.Guavate;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
@@ -80,21 +82,28 @@ public class ElasticSearchListeningMessageSearchIndex extends ListeningMessageSe
     }
     
     @Override
-    public Iterator<Long> search(MailboxSession session, Mailbox mailbox, SearchQuery searchQuery) throws MailboxException {
+    public Iterator<MessageUid> search(MailboxSession session, Mailbox mailbox, SearchQuery searchQuery) throws MailboxException {
         Preconditions.checkArgument(session != null, "'session' is mandatory");
         MailboxId mailboxId = mailbox.getMailboxId();
         MultimailboxesSearchQuery query = MultimailboxesSearchQuery.from(searchQuery).inMailboxes(mailboxId).build();
+        Optional<Long> noLimit = Optional.empty();
         return searcher
-                .search(ImmutableList.of(session.getUser()), query)
-                .get(mailboxId)
+                .search(ImmutableList.of(session.getUser()), query, noLimit)
+                .map(SearchResult::getMessageUid)
                 .iterator();
     }
     
     @Override
-    public Map<MailboxId, Collection<Long>> search(MailboxSession session, MultimailboxesSearchQuery searchQuery)
+    public List<MessageId> search(MailboxSession session, MultimailboxesSearchQuery searchQuery, long limit)
             throws MailboxException {
         Preconditions.checkArgument(session != null, "'session' is mandatory");
-        return searcher.search(ImmutableList.of(session.getUser()), searchQuery).asMap();
+        return searcher.search(ImmutableList.of(session.getUser()), searchQuery, Optional.empty())
+            .peek(this::logIfNoMessageId)
+            .map(SearchResult::getMessageId)
+            .map(com.google.common.base.Optional::get)
+            .distinct()
+            .limit(limit)
+            .collect(Guavate.toImmutableList());
     }
 
     @Override
@@ -102,12 +111,17 @@ public class ElasticSearchListeningMessageSearchIndex extends ListeningMessageSe
         try {
             indexer.indexMessage(indexIdFor(mailbox, message.getUid()), messageToElasticSearchJson.convertToJson(message, ImmutableList.of(session.getUser())));
         } catch (Exception e) {
-            LOGGER.error("Error when indexing message " + message.getUid(), e);
+            try {
+                LOGGER.warn("indexing message {} without attachments ", message.getUid());
+                indexer.indexMessage(indexIdFor(mailbox, message.getUid()), messageToElasticSearchJson.convertToJsonWithoutAttachment(message, ImmutableList.of(session.getUser())));
+            } catch (JsonProcessingException e1) {
+                LOGGER.error("Error when indexing message " + message.getUid() + " without its attachment", e1);
+            }
         }
     }
-
+    
     @Override
-    public void delete(MailboxSession session, Mailbox mailbox, List<Long> expungedUids) throws MailboxException {
+    public void delete(MailboxSession session, Mailbox mailbox, List<MessageUid> expungedUids) throws MailboxException {
         try {
             indexer.deleteMessages(expungedUids.stream()
                 .map(uid ->  indexIdFor(mailbox, uid))
@@ -152,8 +166,14 @@ public class ElasticSearchListeningMessageSearchIndex extends ListeningMessageSe
         }
     }
 
-    private String indexIdFor(Mailbox mailbox, long messageId) {
-        return String.join(ID_SEPARATOR, mailbox.getMailboxId().serialize(), String.valueOf(messageId));
+    private String indexIdFor(Mailbox mailbox, MessageUid uid) {
+        return String.join(ID_SEPARATOR, mailbox.getMailboxId().serialize(), String.valueOf(uid.asLong()));
     }
-    
+
+    private void logIfNoMessageId(SearchResult searchResult) {
+        if (!searchResult.getMessageId().isPresent()) {
+            LOGGER.error("No messageUid for {} in mailbox {}", searchResult.getMessageUid(), searchResult.getMailboxId());
+        }
+    }
+
 }

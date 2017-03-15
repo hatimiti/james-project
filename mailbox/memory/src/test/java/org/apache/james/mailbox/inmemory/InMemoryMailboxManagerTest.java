@@ -24,8 +24,9 @@ import org.apache.james.mailbox.acl.MailboxACLResolver;
 import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
 import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.store.JVMMailboxPathLocker;
-import org.apache.james.mailbox.store.MockAuthenticator;
+import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.mailbox.store.FakeAuthenticator;
+import org.apache.james.mailbox.store.FakeAuthorizator;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.junit.runner.RunWith;
 import org.xenei.junit.contract.Contract;
@@ -38,6 +39,8 @@ import com.google.common.base.Throwables;
 @RunWith(ContractSuite.class)
 @ContractImpl(InMemoryMailboxManager.class)
 public class InMemoryMailboxManagerTest {
+    private static final int LIMIT_ANNOTATIONS = 3;
+    private static final int LIMIT_ANNOTATION_SIZE = 30;
 
     private IProducer<InMemoryMailboxManager> producer = new IProducer<InMemoryMailboxManager>() {
 
@@ -48,7 +51,9 @@ public class InMemoryMailboxManagerTest {
             MessageParser messageParser = new MessageParser();
 
             InMemoryMailboxSessionMapperFactory mailboxSessionMapperFactory = new InMemoryMailboxSessionMapperFactory();
-            InMemoryMailboxManager mailboxManager = new InMemoryMailboxManager(mailboxSessionMapperFactory, new MockAuthenticator(), new JVMMailboxPathLocker(), aclResolver, groupMembershipResolver, messageParser);
+            MessageId.Factory messageIdFactory = new InMemoryMessageId.Factory();
+            InMemoryMailboxManager mailboxManager = new InMemoryMailboxManager(mailboxSessionMapperFactory, new FakeAuthenticator(), FakeAuthorizator.defaultReject(),
+                    aclResolver, groupMembershipResolver, messageParser, messageIdFactory, LIMIT_ANNOTATIONS, LIMIT_ANNOTATION_SIZE);
 
             try {
                 mailboxManager.init();

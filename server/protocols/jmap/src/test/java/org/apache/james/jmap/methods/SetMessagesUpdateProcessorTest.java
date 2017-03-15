@@ -24,11 +24,13 @@ import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import org.apache.james.jmap.model.MessageId;
 import org.apache.james.jmap.model.MessageProperties;
 import org.apache.james.jmap.model.SetMessagesRequest;
 import org.apache.james.jmap.model.SetMessagesResponse;
 import org.apache.james.jmap.model.UpdateMessagePatch;
+import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.mailbox.model.TestMessageId;
+import org.apache.james.metrics.api.NoopMetricFactory;
 import org.junit.Test;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -40,7 +42,7 @@ public class SetMessagesUpdateProcessorTest {
 
     @Test
     public void processShouldReturnEmptyUpdatedWhenRequestHasEmptyUpdate() {
-        SetMessagesUpdateProcessor sut = new SetMessagesUpdateProcessor(null, null, null);
+        SetMessagesUpdateProcessor sut = new SetMessagesUpdateProcessor(null, null, null, new NoopMetricFactory());
         SetMessagesRequest requestWithEmptyUpdate = SetMessagesRequest.builder().build();
 
         SetMessagesResponse result = sut.process(requestWithEmptyUpdate, null);
@@ -64,8 +66,8 @@ public class SetMessagesUpdateProcessorTest {
         when(mockConverter.fromJsonNode(any(ObjectNode.class)))
                 .thenReturn(mockInvalidPatch);
 
-        SetMessagesUpdateProcessor sut = new SetMessagesUpdateProcessor(mockConverter, null, null);
-        MessageId requestMessageId = MessageId.of("user|inbox|1");
+        SetMessagesUpdateProcessor sut = new SetMessagesUpdateProcessor(mockConverter, null, null, new NoopMetricFactory());
+        MessageId requestMessageId = TestMessageId.of(1);
         SetMessagesRequest requestWithInvalidUpdate = SetMessagesRequest.builder()
                 .update(ImmutableMap.of(requestMessageId, JsonNodeFactory.instance.objectNode()))
                 .build();

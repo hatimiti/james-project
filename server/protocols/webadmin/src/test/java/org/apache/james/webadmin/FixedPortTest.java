@@ -24,6 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.Test;
 
+import nl.jqno.equalsverifier.EqualsVerifier;
+
 public class FixedPortTest {
 
     @Test
@@ -45,6 +47,11 @@ public class FixedPortTest {
     public void toIntShouldReturnedDesiredPort() {
         int expectedPort = 452;
         assertThat(new FixedPort(expectedPort).toInt()).isEqualTo(expectedPort);
+    }
+
+    @Test
+    public void shouldMatchBeanContract() {
+        EqualsVerifier.forClass(FixedPort.class).verify();
     }
 
 }

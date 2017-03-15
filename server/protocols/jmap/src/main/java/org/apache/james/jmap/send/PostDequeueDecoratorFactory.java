@@ -21,29 +21,31 @@ package org.apache.james.jmap.send;
 
 import javax.inject.Inject;
 
+import org.apache.james.jmap.utils.SystemMailboxesProvider;
 import org.apache.james.mailbox.MailboxManager;
-import org.apache.james.mailbox.store.mail.MailboxMapperFactory;
-import org.apache.james.mailbox.store.mail.MessageMapperFactory;
+import org.apache.james.mailbox.MessageIdManager;
+import org.apache.james.mailbox.model.MessageId.Factory;
 import org.apache.james.queue.api.MailQueue.MailQueueItem;
 import org.apache.james.queue.api.MailQueueItemDecoratorFactory;
 
 public class PostDequeueDecoratorFactory implements MailQueueItemDecoratorFactory {
     private final MailboxManager mailboxManager;
-    private final MessageMapperFactory messageMapperFactory;
-    private final MailboxMapperFactory mailboxMapperFactory;
+    private final Factory messageIdFactory;
+    private final MessageIdManager messageIdManager;
+    private final SystemMailboxesProvider systemMailboxesProvider;
 
     @Inject
-    public PostDequeueDecoratorFactory(MailboxManager mailboxManager,
-            MessageMapperFactory messageMapperFactory,
-            MailboxMapperFactory mailboxMapperFactory) {
-                this.mailboxManager = mailboxManager;
-                this.messageMapperFactory = messageMapperFactory;
-                this.mailboxMapperFactory = mailboxMapperFactory;
+    public PostDequeueDecoratorFactory(MailboxManager mailboxManager, Factory messageIdFactory,
+            MessageIdManager messageIdManager, SystemMailboxesProvider systemMailboxesProvider) {
+        this.mailboxManager = mailboxManager;
+        this.messageIdFactory = messageIdFactory;
+        this.messageIdManager = messageIdManager;
+        this.systemMailboxesProvider = systemMailboxesProvider;
     }
 
     @Override
     public MailQueueItemDecorator decorate(MailQueueItem mailQueueItem) {
-        return new PostDequeueDecorator(mailQueueItem, mailboxManager, messageMapperFactory, mailboxMapperFactory);
+        return new PostDequeueDecorator(mailQueueItem, mailboxManager, messageIdFactory, messageIdManager, systemMailboxesProvider);
     }
 
 }

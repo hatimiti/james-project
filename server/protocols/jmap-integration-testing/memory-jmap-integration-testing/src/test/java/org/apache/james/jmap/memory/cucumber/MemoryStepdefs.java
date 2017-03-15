@@ -21,10 +21,14 @@ package org.apache.james.jmap.memory.cucumber;
 
 import javax.inject.Inject;
 
+import org.apache.activemq.store.PersistenceAdapter;
+import org.apache.activemq.store.memory.MemoryPersistenceAdapter;
 import org.apache.james.GuiceJamesServer;
 import org.apache.james.MemoryJamesServerMain;
 import org.apache.james.jmap.methods.integration.cucumber.MainStepdefs;
 import org.apache.james.jmap.servers.MemoryJmapServerModule;
+import org.apache.james.mailbox.inmemory.InMemoryMessageId;
+import org.apache.james.mailbox.model.MessageId;
 import org.junit.rules.TemporaryFolder;
 
 import cucumber.api.java.After;
@@ -46,9 +50,12 @@ public class MemoryStepdefs {
     @Before
     public void init() throws Exception {
         temporaryFolder.create();
+        mainStepdefs.messageIdFactory = new InMemoryMessageId.Factory();
         mainStepdefs.jmapServer = new GuiceJamesServer()
                 .combineWith(MemoryJamesServerMain.inMemoryServerModule)
-                .overrideWith(new MemoryJmapServerModule(temporaryFolder));
+                .overrideWith(new MemoryJmapServerModule(temporaryFolder),
+                		(binder) -> binder.bind(MessageId.Factory.class).toInstance(mainStepdefs.messageIdFactory))
+                .overrideWith((binder) -> binder.bind(PersistenceAdapter.class).to(MemoryPersistenceAdapter.class));
         mainStepdefs.init();
     }
 

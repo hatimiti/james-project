@@ -33,12 +33,12 @@ import javax.mail.util.ByteArrayDataSource;
 
 import org.apache.james.mime4j.dom.field.ContentTypeField;
 
-import com.github.fge.lambdas.Throwing;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 
 public class MimeMessageBodyGenerator {
     public static final String MIXED = "mixed";
+    public static final String EMPTY_TEXT = "";
 
     private final HtmlTextExtractor htmlTextExtractor;
 
@@ -52,11 +52,10 @@ public class MimeMessageBodyGenerator {
         Preconditions.checkNotNull(messageHoldingHeaders);
         Preconditions.checkNotNull(plainText);
         Preconditions.checkNotNull(htmlText);
-        Preconditions.checkState(plainText.isPresent() || htmlText.isPresent(), "MimeMessageBodyGenerator needs at least plainText or html text");
         if (htmlText.isPresent()) {
             messageHoldingHeaders.setContent(generateMultipart(htmlText.get(), plainText));
         } else {
-            plainText.ifPresent(Throwing.consumer(messageHoldingHeaders::setText));
+            messageHoldingHeaders.setText(plainText.orElse(EMPTY_TEXT));
         }
         return messageHoldingHeaders;
     }

@@ -18,23 +18,21 @@
  ****************************************************************/
 package org.apache.james.backends.cassandra;
 
-import java.util.Optional;
-
-import javax.annotation.PreDestroy;
-import javax.inject.Inject;
-
-import org.apache.james.backends.cassandra.components.CassandraModule;
-import org.apache.james.backends.cassandra.init.CassandraTableManager;
-import org.apache.james.backends.cassandra.init.CassandraTypesProvider;
-import org.apache.james.backends.cassandra.init.ClusterFactory;
-import org.apache.james.backends.cassandra.init.ClusterWithKeyspaceCreatedFactory;
-import org.apache.james.backends.cassandra.init.SessionWithInitializedTablesFactory;
-import org.apache.james.backends.cassandra.utils.FunctionRunnerWithRetry;
-
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.exceptions.NoHostAvailableException;
 import com.google.common.base.Throwables;
+import org.apache.james.backends.cassandra.components.CassandraModule;
+import org.apache.james.backends.cassandra.init.CassandraTableManager;
+import org.apache.james.backends.cassandra.init.CassandraTypesProvider;
+import org.apache.james.backends.cassandra.init.ClusterBuilder;
+import org.apache.james.backends.cassandra.init.ClusterWithKeyspaceCreatedFactory;
+import org.apache.james.backends.cassandra.init.SessionWithInitializedTablesFactory;
+import org.apache.james.backends.cassandra.utils.FunctionRunnerWithRetry;
+
+import javax.annotation.PreDestroy;
+import javax.inject.Inject;
+import java.util.Optional;
 
 public final class CassandraCluster {
     private static final String CLUSTER_IP = "localhost";
@@ -92,7 +90,10 @@ public final class CassandraCluster {
     }
 
     public Cluster getCluster() {
-        return ClusterFactory.createTestingCluster(CLUSTER_IP, CLUSTER_PORT_TEST);
+        return ClusterBuilder.builder()
+                .host(CLUSTER_IP)
+                .port(CLUSTER_PORT_TEST)
+                .build();
     }
 
     private void sleep(long sleepMs) {

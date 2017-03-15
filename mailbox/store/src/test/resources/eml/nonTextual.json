@@ -1,5 +1,6 @@
 {
-  "id":0,
+  "messageId":"184",
+  "uid":25,
   "mailboxId":"18",
   "modSeq":42,
   "size":25,
@@ -153,7 +154,7 @@
   "isDraft":false,
   "isFlagged":false,
   "isRecent":false,
-  "hasAttachment":true,
+  "hasAttachment":false,
   "isUnread":true,
   "users": [
     "username"

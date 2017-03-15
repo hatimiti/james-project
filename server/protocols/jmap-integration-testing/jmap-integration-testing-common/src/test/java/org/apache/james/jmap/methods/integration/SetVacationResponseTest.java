@@ -23,16 +23,21 @@ import static com.jayway.restassured.RestAssured.given;
 import static com.jayway.restassured.config.EncoderConfig.encoderConfig;
 import static com.jayway.restassured.config.RestAssuredConfig.newConfig;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 
 import java.time.ZonedDateTime;
+import java.util.Optional;
 
+import org.apache.http.client.utils.URIBuilder;
 import org.apache.james.GuiceJamesServer;
-import org.apache.james.jmap.JmapAuthentication;
+import org.apache.james.jmap.HttpJmapAuthentication;
 import org.apache.james.jmap.api.access.AccessToken;
 import org.apache.james.jmap.api.vacation.AccountId;
 import org.apache.james.jmap.api.vacation.Vacation;
+import org.apache.james.jmap.api.vacation.VacationPatch;
+import org.apache.james.util.ValuePatch;
+import org.apache.james.utils.JmapGuiceProbe;
+import org.apache.james.utils.DataProbeImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,6 +55,7 @@ public abstract class SetVacationResponseTest {
     public static final String USER = "username@" + USERS_DOMAIN;
     public static final String PASSWORD = "password";
     public static final String SUBJECT = "subject";
+    private JmapGuiceProbe jmapGuiceProbe;
 
     protected abstract GuiceJamesServer createJmapServer();
 
@@ -62,18 +68,29 @@ public abstract class SetVacationResponseTest {
     public void setup() throws Throwable {
         jmapServer = createJmapServer();
         jmapServer.start();
+        jmapGuiceProbe = jmapServer.getProbe(JmapGuiceProbe.class);
         RestAssured.requestSpecification = new RequestSpecBuilder()
-        		.setContentType(ContentType.JSON)
-        		.setAccept(ContentType.JSON)
-        		.setConfig(newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8)))
-        		.setPort(jmapServer.getJmapPort())
-        		.build();
+                .setContentType(ContentType.JSON)
+                .setAccept(ContentType.JSON)
+                .setConfig(newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8)))
+                .setPort(jmapGuiceProbe
+                    .getJmapPort())
+                .build();
 
-        jmapServer.serverProbe().addDomain(USERS_DOMAIN);
-        jmapServer.serverProbe().addUser(USER, PASSWORD);
-        accessToken = JmapAuthentication.authenticateJamesUser(USER, PASSWORD);
+        jmapServer.getProbe(DataProbeImpl.class).addDomain(USERS_DOMAIN);
+        jmapServer.getProbe(DataProbeImpl.class).addUser(USER, PASSWORD);
+        accessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER, PASSWORD);
 
         await();
+    }
+
+    private URIBuilder baseUri() {
+        return new URIBuilder()
+            .setScheme("http")
+            .setHost("localhost")
+            .setPort(jmapServer.getProbe(JmapGuiceProbe.class)
+                .getJmapPort())
+            .setCharset(Charsets.UTF_8);
     }
 
     @After
@@ -140,12 +157,13 @@ public abstract class SetVacationResponseTest {
 
     @Test
     public void setVacationResponseShouldContainAnErrorWhenInvalidId() {
+        int id = 1;
         String bodyRequest = "[[" +
             "\"setVacationResponse\", " +
             "{" +
                 "\"update\":{" +
                     "\"singleton\" : {" +
-                        "\"id\": \"1\"," +
+                        "\"id\": \"" + id + "\"," +
                         "\"isEnabled\": \"true\"," +
                         "\"textBody\": \"Message explaining my wonderful vacations\"" +
                     "}" +
@@ -163,7 +181,7 @@ public abstract class SetVacationResponseTest {
             .statusCode(200)
             .body(NAME, equalTo("vacationResponseSet"))
             .body(ARGUMENTS + ".notUpdated.singleton.type", equalTo("invalidArguments"))
-            .body(ARGUMENTS + ".notUpdated.singleton.description", equalTo("There is one VacationResponse object per account, with id set to \"singleton\" and not to 1"));
+            .body(ARGUMENTS + ".notUpdated.singleton.description", equalTo("There is one VacationResponse object per account, with id set to \\\"singleton\\\" and not to " + id));
     }
 
     @Test
@@ -196,13 +214,129 @@ public abstract class SetVacationResponseTest {
             .body(NAME, equalTo("vacationResponseSet"))
             .body(ARGUMENTS + ".updated[0]", equalTo("singleton"));
 
-        Vacation vacation = jmapServer.serverProbe().retrieveVacation(AccountId.fromString(USER));
+        Vacation vacation = jmapGuiceProbe.retrieveVacation(AccountId.fromString(USER));
         assertThat(vacation.getTextBody()).contains("Message explaining my wonderful vacations");
         assertThat(vacation.getHtmlBody()).contains("<p>Here is the HTML version</p>");
         assertThat(vacation.isEnabled()).isTrue();
         assertThat(vacation.getFromDate()).contains(ZonedDateTime.parse("2014-09-30T14:10:00Z[GMT]"));
         assertThat(vacation.getToDate()).contains(ZonedDateTime.parse("2014-10-30T14:10:00Z[GMT]"));
         assertThat(vacation.getSubject()).contains(SUBJECT);
+    }
+
+    @Test
+    public void setVacationResponseShouldAllowResets() {
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .textBody(ValuePatch.modifyTo("any value"))
+                .build());
+
+        String bodyRequest = "[[" +
+            "\"setVacationResponse\", " +
+            "{" +
+                "\"update\":{" +
+                    "\"singleton\" : {" +
+                        "\"id\": \"singleton\"," +
+                        "\"textBody\": null" +
+                    "}" +
+                "}" +
+            "}, " +
+            "\"#0\"" +
+            "]]";
+
+        given()
+            .header("Authorization", accessToken.serialize())
+            .body(bodyRequest)
+        .when()
+            .post("/jmap")
+        .then()
+            .statusCode(200)
+            .body(NAME, equalTo("vacationResponseSet"))
+            .body(ARGUMENTS + ".updated[0]", equalTo("singleton"));
+
+        assertThat(jmapGuiceProbe.retrieveVacation(AccountId.fromString(USER)))
+            .isEqualTo(Vacation.builder()
+                .enabled(false)
+                .build());
+    }
+
+    @Test
+    public void setVacationResponseShouldNotAlterAbsentProperties() {
+        String textBody = "any value";
+        String subject = "any subject";
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .textBody(ValuePatch.modifyTo(textBody))
+                .build());
+
+        String bodyRequest = "[[" +
+            "\"setVacationResponse\", " +
+            "{" +
+                "\"update\":{" +
+                    "\"singleton\" : {" +
+                        "\"id\": \"singleton\"," +
+                        "\"subject\": \"" + subject + "\"" +
+                    "}" +
+                "}" +
+            "}, " +
+            "\"#0\"" +
+            "]]";
+
+        given()
+            .accept(ContentType.JSON)
+            .contentType(ContentType.JSON)
+            .header("Authorization", accessToken.serialize())
+            .body(bodyRequest)
+            .when()
+            .post("/jmap")
+            .then()
+            .statusCode(200)
+            .body(NAME, equalTo("vacationResponseSet"))
+            .body(ARGUMENTS + ".updated[0]", equalTo("singleton"));
+
+        assertThat(jmapGuiceProbe.retrieveVacation(AccountId.fromString(USER)))
+            .isEqualTo(Vacation.builder()
+                .enabled(false)
+                .subject(Optional.of(subject))
+                .textBody(textBody)
+                .build());
+    }
+
+    @Test
+    public void setVacationResponseShouldAllowPartialUpdates() {
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .textBody(ValuePatch.modifyTo("any value"))
+                .build());
+
+        String newTextBody = "Awesome text message 2";
+        String bodyRequest = "[[" +
+            "\"setVacationResponse\", " +
+            "{" +
+                "\"update\":{" +
+                    "\"singleton\" : {" +
+                        "\"id\": \"singleton\"," +
+                        "\"textBody\": \"" + newTextBody + "\"" +
+                    "}" +
+                "}" +
+            "}, " +
+            "\"#0\"" +
+            "]]";
+
+        given()
+            .header("Authorization", accessToken.serialize())
+            .body(bodyRequest)
+            .when()
+            .post("/jmap")
+            .then()
+            .statusCode(200)
+            .body(NAME, equalTo("vacationResponseSet"))
+            .body(ARGUMENTS + ".updated[0]", equalTo("singleton"));
+
+        assertThat(jmapGuiceProbe.retrieveVacation(AccountId.fromString(USER)))
+            .isEqualTo(Vacation.builder()
+                .enabled(false)
+                .textBody(newTextBody)
+                .build());
     }
 
     @Test
@@ -233,66 +367,11 @@ public abstract class SetVacationResponseTest {
             .body(NAME, equalTo("vacationResponseSet"))
             .body(ARGUMENTS + ".updated[0]", equalTo("singleton"));
 
-        Vacation vacation = jmapServer.serverProbe().retrieveVacation(AccountId.fromString(USER));
+        Vacation vacation = jmapGuiceProbe.retrieveVacation(AccountId.fromString(USER));
         assertThat(vacation.getTextBody()).contains("Message explaining my wonderful vacations");
         assertThat(vacation.isEnabled()).isTrue();
         assertThat(vacation.getFromDate()).contains(ZonedDateTime.parse("2016-04-03T02:01+07:00[Asia/Vientiane]"));
         assertThat(vacation.getToDate()).contains(ZonedDateTime.parse("2016-04-07T02:01+07:00[Asia/Vientiane]"));
-    }
-
-    @Test
-    public void nullTextBodyShouldBeRejected() {
-        String bodyRequest = "[[" +
-            "\"setVacationResponse\", " +
-            "{" +
-                "\"update\":{" +
-                    "\"singleton\" : {" +
-                        "\"id\": \"singleton\"," +
-                        "\"isEnabled\": \"true\"," +
-                        "\"textBody\": null" +
-                    "}" +
-                "}" +
-            "}, " +
-            "\"#0\"" +
-            "]]";
-
-        given()
-            .header("Authorization", accessToken.serialize())
-            .body(bodyRequest)
-        .when()
-            .post("/jmap")
-        .then()
-            .statusCode(200)
-            .body(NAME, equalTo("error"))
-            .body(ARGUMENTS + ".type", equalTo("invalidArguments"))
-            .body(ARGUMENTS + ".description", containsString("textBody or htmlBody property of vacationResponse object should not be null when enabled"));
-    }
-
-    @Test
-    public void noTextBodyShouldBeRejected() {
-        String bodyRequest = "[[" +
-            "\"setVacationResponse\", " +
-            "{" +
-                "\"update\":{" +
-                    "\"singleton\" : {" +
-                        "\"id\": \"singleton\"," +
-                        "\"isEnabled\": \"true\"" +
-                    "}" +
-                "}" +
-            "}, " +
-            "\"#0\"" +
-            "]]";
-
-        given()
-            .header("Authorization", accessToken.serialize())
-            .body(bodyRequest)
-        .when()
-            .post("/jmap")
-        .then()
-            .statusCode(200)
-            .body(NAME, equalTo("error"))
-            .body(ARGUMENTS + ".type", equalTo("invalidArguments"))
-            .body(ARGUMENTS + ".description", containsString("textBody or htmlBody property of vacationResponse object should not be null when enabled"));
     }
 
     @Test

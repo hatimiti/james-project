@@ -27,15 +27,18 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.core.IsNull.nullValue;
 
 import java.time.ZonedDateTime;
-import java.util.Optional;
 
+import org.apache.http.client.utils.URIBuilder;
 import org.apache.james.GuiceJamesServer;
 import org.apache.james.jmap.FixedDateZonedDateTimeProvider;
-import org.apache.james.jmap.JmapAuthentication;
+import org.apache.james.jmap.HttpJmapAuthentication;
 import org.apache.james.jmap.api.access.AccessToken;
 import org.apache.james.jmap.api.vacation.AccountId;
-import org.apache.james.jmap.api.vacation.Vacation;
+import org.apache.james.jmap.api.vacation.VacationPatch;
+import org.apache.james.probe.DataProbe;
 import org.apache.james.util.date.ZonedDateTimeProvider;
+import org.apache.james.utils.JmapGuiceProbe;
+import org.apache.james.utils.DataProbeImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -56,6 +59,7 @@ public abstract class GetVacationResponseTest {
     public static final ZonedDateTime DATE_2015 = ZonedDateTime.parse("2015-10-15T14:10:00Z");
     public static final ZonedDateTime DATE_2014 = ZonedDateTime.parse("2014-09-30T14:10:00+02:00");
     public static final ZonedDateTime DATE_2016 = ZonedDateTime.parse("2016-04-15T11:56:32.224+07:00[Asia/Vientiane]");
+    private JmapGuiceProbe jmapGuiceProbe;
 
     protected abstract GuiceJamesServer createJmapServer(ZonedDateTimeProvider zonedDateTimeProvider);
 
@@ -73,19 +77,29 @@ public abstract class GetVacationResponseTest {
         jmapServer = createJmapServer(fixedDateZonedDateTimeProvider);
         jmapServer.start();
 
+        jmapGuiceProbe = jmapServer.getProbe(JmapGuiceProbe.class);
         RestAssured.requestSpecification = new RequestSpecBuilder()
-        		.setContentType(ContentType.JSON)
-        		.setAccept(ContentType.JSON)
-        		.setConfig(newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8)))
-        		.setPort(jmapServer.getJmapPort())
-        		.build();
+                .setContentType(ContentType.JSON)
+                .setAccept(ContentType.JSON)
+                .setConfig(newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8)))
+                .setPort(jmapGuiceProbe.getJmapPort())
+                .build();
 
-
-        jmapServer.serverProbe().addDomain(USERS_DOMAIN);
-        jmapServer.serverProbe().addUser(USER, PASSWORD);
-        accessToken = JmapAuthentication.authenticateJamesUser(USER, PASSWORD);
+        DataProbe dataProbe = jmapServer.getProbe(DataProbeImpl.class);
+        dataProbe.addDomain(USERS_DOMAIN);
+        dataProbe.addUser(USER, PASSWORD);
+        accessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER, PASSWORD);
 
         await();
+    }
+
+    private URIBuilder baseUri() {
+        return new URIBuilder()
+            .setScheme("http")
+            .setHost("localhost")
+            .setPort(jmapServer.getProbe(JmapGuiceProbe.class)
+                .getJmapPort())
+            .setCharset(Charsets.UTF_8);
     }
 
     @After
@@ -120,13 +134,13 @@ public abstract class GetVacationResponseTest {
 
     @Test
     public void getVacationResponseShouldReturnStoredValue() {
-        jmapServer.serverProbe().modifyVacation(AccountId.fromString(USER),
-            Vacation.builder()
-                .enabled(true)
-                .fromDate(Optional.of(ZonedDateTime.parse("2014-09-30T14:10:00Z")))
-                .toDate(Optional.of(ZonedDateTime.parse("2014-10-30T14:10:00Z")))
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .isEnabled(true)
+                .fromDate(ZonedDateTime.parse("2014-09-30T14:10:00Z"))
+                .toDate(ZonedDateTime.parse("2014-10-30T14:10:00Z"))
                 .textBody("Test explaining my vacations")
-                .subject(Optional.of(SUBJECT))
+                .subject(SUBJECT)
                 .htmlBody("<p>Test explaining my vacations</p>")
                 .build());
 
@@ -155,11 +169,11 @@ public abstract class GetVacationResponseTest {
 
     @Test
     public void getVacationResponseShouldReturnStoredValueWithNonDefaultTimezone() {
-        jmapServer.serverProbe().modifyVacation(AccountId.fromString(USER),
-            Vacation.builder()
-                .enabled(true)
-                .fromDate(Optional.of(ZonedDateTime.parse("2014-09-30T14:10:00+02:00")))
-                .toDate(Optional.of(ZonedDateTime.parse("2016-04-15T11:56:32.224+07:00[Asia/Vientiane]")))
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .isEnabled(true)
+                .fromDate(ZonedDateTime.parse("2014-09-30T14:10:00+02:00"))
+                .toDate(ZonedDateTime.parse("2016-04-15T11:56:32.224+07:00[Asia/Vientiane]"))
                 .textBody("Test explaining my vacations")
                 .build());
 
@@ -186,11 +200,11 @@ public abstract class GetVacationResponseTest {
 
     @Test
     public void getVacationResponseShouldReturnIsActivatedWhenInRange() {
-        jmapServer.serverProbe().modifyVacation(AccountId.fromString(USER),
-            Vacation.builder()
-                .enabled(true)
-                .fromDate(Optional.of(DATE_2014))
-                .toDate(Optional.of(DATE_2016))
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .isEnabled(true)
+                .fromDate(DATE_2014)
+                .toDate(DATE_2016)
                 .textBody("Test explaining my vacations")
                 .build());
 
@@ -215,11 +229,11 @@ public abstract class GetVacationResponseTest {
     public void getVacationResponseShouldNotReturnIsActivatedWhenOutOfRange() {
         fixedDateZonedDateTimeProvider.setFixedDateTime(DATE_2014);
 
-        jmapServer.serverProbe().modifyVacation(AccountId.fromString(USER),
-            Vacation.builder()
-                .enabled(true)
-                .fromDate(Optional.of(DATE_2015))
-                .toDate(Optional.of(DATE_2016))
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .isEnabled(true)
+                .fromDate(DATE_2015)
+                .toDate(DATE_2016)
                 .textBody("Test explaining my vacations")
                 .build());
 
@@ -242,11 +256,11 @@ public abstract class GetVacationResponseTest {
 
     @Test
     public void accountIdIsNotSupported() {
-        jmapServer.serverProbe().modifyVacation(AccountId.fromString(USER),
-            Vacation.builder()
-                .enabled(true)
-                .fromDate(Optional.of(ZonedDateTime.parse("2014-09-30T14:10:00+02:00")))
-                .toDate(Optional.of(ZonedDateTime.parse("2014-10-30T14:10:00+02:00")))
+        jmapGuiceProbe.modifyVacation(AccountId.fromString(USER),
+            VacationPatch.builder()
+                .isEnabled(true)
+                .fromDate(ZonedDateTime.parse("2014-09-30T14:10:00+02:00"))
+                .toDate(ZonedDateTime.parse("2014-10-30T14:10:00+02:00"))
                 .textBody("Test explaining my vacations")
                 .build());
 

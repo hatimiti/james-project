@@ -44,10 +44,12 @@ import javax.mail.util.SharedByteArrayInputStream;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.hbase.HBaseClusterSingleton;
 import org.apache.james.mailbox.hbase.mail.model.HBaseMailbox;
 import org.apache.james.mailbox.mock.MockMailboxSession;
 import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
 import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
@@ -73,6 +75,7 @@ public class HBaseMailboxMessageMapperTest {
     private static final List<MailboxMessage> MESSAGE_NO = new ArrayList<MailboxMessage>();
     private static final int COUNT = 5;
     private static Configuration conf;
+    private DefaultMessageId.Factory messageIdFactory;
     /*
      * we mock a simple message content
      */
@@ -96,9 +99,10 @@ public class HBaseMailboxMessageMapperTest {
         conf = CLUSTER.getConf();
         uidProvider = new HBaseUidProvider(conf);
         modSeqProvider = new HBaseModSeqProvider(conf);
+        messageIdFactory = new DefaultMessageId.Factory();
         generateTestData();
         final MailboxSession session = new MockMailboxSession("ieugen");
-        messageMapper = new HBaseMessageMapper(session, uidProvider, modSeqProvider, conf);
+        messageMapper = new HBaseMessageMapper(session, uidProvider, modSeqProvider, messageIdFactory, conf);
         for (MailboxMessage message : MESSAGE_NO) {
             messageMapper.add(MBOXES.get(1), message);
         }
@@ -117,7 +121,7 @@ public class HBaseMailboxMessageMapperTest {
         CLUSTER.clearTable(SUBSCRIPTIONS);
     }
 
-    public static void generateTestData() {
+    public void generateTestData() {
         final Random random = new Random();
         MailboxPath mboxPath;
         final PropertyBuilder propBuilder = new PropertyBuilder();
@@ -141,7 +145,7 @@ public class HBaseMailboxMessageMapperTest {
         final Date today = new Date();
 
         for (int i = 0; i < COUNT * 2; i++) {
-            myMsg = new SimpleMailboxMessage(today, messageTemplate.length,
+            myMsg = new SimpleMailboxMessage(messageIdFactory.generate(), today, messageTemplate.length,
                     messageTemplate.length - 20, content, flags, propBuilder,
                     MBOXES.get(1).getMailboxId());
             if (i == COUNT * 2 - 1) {
@@ -192,8 +196,8 @@ public class HBaseMailboxMessageMapperTest {
      */
     private void testFindFirstUnseenMessageUid() throws Exception {
         LOG.info("findFirstUnseenMessageUid");
-        final long uid = messageMapper.findFirstUnseenMessageUid(MBOXES.get(1));
-        assertEquals(1, uid);
+        MessageUid uid = messageMapper.findFirstUnseenMessageUid(MBOXES.get(1));
+        assertEquals(MessageUid.of(1), uid);
     }
 
     /**
@@ -202,7 +206,7 @@ public class HBaseMailboxMessageMapperTest {
      */
     private void testFindRecentMessageUidsInMailbox() throws Exception {
         LOG.info("findRecentMessageUidsInMailbox");
-        List<Long> recentMessages = messageMapper.findRecentMessageUidsInMailbox(MBOXES.get(1));
+        List<MessageUid> recentMessages = messageMapper.findRecentMessageUidsInMailbox(MBOXES.get(1));
         assertEquals(MESSAGE_NO.size() - 1, recentMessages.size());
     }
 
@@ -222,8 +226,8 @@ public class HBaseMailboxMessageMapperTest {
      */
     private void testGetLastUid() throws Exception {
         LOG.info("getLastUid");
-        long lastUid = messageMapper.getLastUid(MBOXES.get(1));
-        assertEquals(MESSAGE_NO.size(), lastUid);
+        MessageUid lastUid = messageMapper.getLastUid(MBOXES.get(1)).get();
+        assertEquals(MessageUid.of(MESSAGE_NO.size()), lastUid);
     }
 
     /**

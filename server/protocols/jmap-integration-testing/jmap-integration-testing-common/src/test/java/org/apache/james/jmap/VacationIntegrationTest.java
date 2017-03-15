@@ -31,9 +31,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.http.client.utils.URIBuilder;
 import org.apache.james.GuiceJamesServer;
 import org.apache.james.jmap.api.access.AccessToken;
+import org.apache.james.jmap.api.vacation.AccountId;
+import org.apache.james.jmap.api.vacation.VacationPatch;
 import org.apache.james.mailbox.model.MailboxConstants;
+import org.apache.james.mailbox.store.probe.MailboxProbe;
+import org.apache.james.modules.MailboxProbeImpl;
+import org.apache.james.probe.DataProbe;
+import org.apache.james.utils.JmapGuiceProbe;
+import org.apache.james.utils.DataProbeImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -61,6 +69,7 @@ public abstract class VacationIntegrationTest {
 
     private ConditionFactory calmlyAwait;
     private GuiceJamesServer guiceJamesServer;
+    private JmapGuiceProbe jmapGuiceProbe;
 
     protected abstract GuiceJamesServer createJmapServer();
 
@@ -71,25 +80,38 @@ public abstract class VacationIntegrationTest {
         guiceJamesServer = createJmapServer();
         guiceJamesServer.start();
 
-        guiceJamesServer.serverProbe().addDomain(DOMAIN);
-        guiceJamesServer.serverProbe().addUser(USER_1, PASSWORD);
-        guiceJamesServer.serverProbe().addUser(USER_2, PASSWORD);
-        guiceJamesServer.serverProbe().createMailbox(MailboxConstants.USER_NAMESPACE, USER_2, "outbox");
-        guiceJamesServer.serverProbe().createMailbox(MailboxConstants.USER_NAMESPACE, USER_1, "sent");
-        guiceJamesServer.serverProbe().createMailbox(MailboxConstants.USER_NAMESPACE, USER_2, "sent");
-        guiceJamesServer.serverProbe().createMailbox(MailboxConstants.USER_NAMESPACE, USER_1, "INBOX");
-        guiceJamesServer.serverProbe().createMailbox(MailboxConstants.USER_NAMESPACE, USER_2, "INBOX");
+        DataProbe dataProbe = guiceJamesServer.getProbe(DataProbeImpl.class);
+        dataProbe.addDomain(DOMAIN);
+        dataProbe.addUser(USER_1, PASSWORD);
+        dataProbe.addUser(USER_2, PASSWORD);
+        MailboxProbe mailboxProbe = guiceJamesServer.getProbe(MailboxProbeImpl.class);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USER_2, DefaultMailboxes.OUTBOX);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USER_1, DefaultMailboxes.SENT);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USER_2, DefaultMailboxes.SENT);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USER_1, DefaultMailboxes.INBOX);
+        mailboxProbe.createMailbox(MailboxConstants.USER_NAMESPACE, USER_2, DefaultMailboxes.INBOX);
         await();
 
+        jmapGuiceProbe = guiceJamesServer.getProbe(JmapGuiceProbe.class);
         RestAssured.requestSpecification = new RequestSpecBuilder()
         		.setContentType(ContentType.JSON)
         		.setAccept(ContentType.JSON)
         		.setConfig(newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8)))
-        		.setPort(guiceJamesServer.getJmapPort())
+        		.setPort(jmapGuiceProbe
+                    .getJmapPort())
         		.build();
 
         Duration slowPacedPollInterval = Duration.FIVE_HUNDRED_MILLISECONDS;
         calmlyAwait = Awaitility.with().pollInterval(slowPacedPollInterval).and().with().pollDelay(slowPacedPollInterval).await();
+    }
+
+    private URIBuilder baseUri() {
+        return new URIBuilder()
+            .setScheme("http")
+            .setHost("localhost")
+            .setPort(guiceJamesServer.getProbe(JmapGuiceProbe.class)
+                .getJmapPort())
+            .setCharset(Charsets.UTF_8);
     }
 
     @After
@@ -107,8 +129,8 @@ public abstract class VacationIntegrationTest {
         */
 
         // Given
-        AccessToken user1AccessToken = JmapAuthentication.authenticateJamesUser(USER_1, PASSWORD);
-        AccessToken user2AccessToken = JmapAuthentication.authenticateJamesUser(USER_2, PASSWORD);
+        AccessToken user1AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_1, PASSWORD);
+        AccessToken user2AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_2, PASSWORD);
         // User 1 benw@mydomain.tld sets a Vacation on its account
         setVacationResponse(user1AccessToken);
 
@@ -127,10 +149,34 @@ public abstract class VacationIntegrationTest {
     }
 
     @Test
+    public void jmapVacationShouldGenerateAReplyEvenWhenNoText() throws Exception {
+        // Given
+        AccessToken user1AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_1, PASSWORD);
+        AccessToken user2AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_2, PASSWORD);
+        jmapGuiceProbe.modifyVacation(
+            AccountId.fromString(USER_1),
+            VacationPatch.builder()
+                .isEnabled(true)
+                .build());
+
+        // When
+        String user2OutboxId = getOutboxId(user2AccessToken);
+        sendMail(user2AccessToken, user2OutboxId, "user|inbox|1");
+
+        // Then
+        // User 1 should well receive this mail
+        calmlyAwait.atMost(30, TimeUnit.SECONDS)
+            .until(() -> isTextMessageReceived(user1AccessToken, getInboxId(user1AccessToken), ORIGINAL_MESSAGE_TEXT_BODY, USER_2, USER_1));
+        // User 2 should well receive a notification about user 1 vacation
+        calmlyAwait.atMost(30, TimeUnit.SECONDS)
+            .until( () -> isTextMessageReceived(user2AccessToken, getInboxId(user2AccessToken), "", USER_1, USER_2));
+    }
+
+    @Test
     public void jmapVacationShouldHaveSupportForHtmlMail() throws Exception {
         // Given
-        AccessToken user1AccessToken = JmapAuthentication.authenticateJamesUser(USER_1, PASSWORD);
-        AccessToken user2AccessToken = JmapAuthentication.authenticateJamesUser(USER_2, PASSWORD);
+        AccessToken user1AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_1, PASSWORD);
+        AccessToken user2AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_2, PASSWORD);
         setHtmlVacationResponse(user1AccessToken);
 
         // When
@@ -153,8 +199,8 @@ public abstract class VacationIntegrationTest {
         */
 
         // Given
-        AccessToken user1AccessToken = JmapAuthentication.authenticateJamesUser(USER_1, PASSWORD);
-        AccessToken user2AccessToken = JmapAuthentication.authenticateJamesUser(USER_2, PASSWORD);
+        AccessToken user1AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_1, PASSWORD);
+        AccessToken user2AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_2, PASSWORD);
 
         // When
         // User 2 matthieu@mydomain.tld sends User 1 a mail
@@ -194,8 +240,8 @@ public abstract class VacationIntegrationTest {
         */
 
         // Given
-        AccessToken user1AccessToken = JmapAuthentication.authenticateJamesUser(USER_1, PASSWORD);
-        AccessToken user2AccessToken = JmapAuthentication.authenticateJamesUser(USER_2, PASSWORD);
+        AccessToken user1AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_1, PASSWORD);
+        AccessToken user2AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_2, PASSWORD);
         // User 1 benw@mydomain.tld sets a Vacation on its account
         setVacationResponse(user1AccessToken);
 
@@ -225,8 +271,8 @@ public abstract class VacationIntegrationTest {
         */
 
         // Given
-        AccessToken user1AccessToken = JmapAuthentication.authenticateJamesUser(USER_1, PASSWORD);
-        AccessToken user2AccessToken = JmapAuthentication.authenticateJamesUser(USER_2, PASSWORD);
+        AccessToken user1AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_1, PASSWORD);
+        AccessToken user2AccessToken = HttpJmapAuthentication.authenticateJamesUser(baseUri(), USER_2, PASSWORD);
         // User 1 benw@mydomain.tld sets a Vacation on its account
         setVacationResponse(user1AccessToken);
         // User 2 matthieu@mydomain.tld sends User 1 a mail
@@ -396,16 +442,16 @@ public abstract class VacationIntegrationTest {
     }
 
     private String getOutboxId(AccessToken accessToken) {
-        return getMailboxIdByRole(accessToken, "outbox");
+        return getMailboxIdByRole(accessToken, DefaultMailboxes.OUTBOX);
     }
 
     private String getInboxId(AccessToken accessToken) {
-        return getMailboxIdByRole(accessToken, "inbox");
+        return getMailboxIdByRole(accessToken, DefaultMailboxes.INBOX);
     }
 
     private String getMailboxIdByRole(AccessToken accessToken, String role) {
         return getAllMailboxesIds(accessToken).stream()
-            .filter(x -> x.get("role").equals(role))
+            .filter(x -> x.get("role").equalsIgnoreCase(role))
             .map(x -> x.get("id"))
             .findFirst()
             .get();

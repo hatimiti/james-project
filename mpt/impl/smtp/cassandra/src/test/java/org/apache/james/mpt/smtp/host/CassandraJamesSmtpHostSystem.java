@@ -24,13 +24,17 @@ import java.util.Iterator;
 import org.apache.james.CassandraJamesServerMain;
 import org.apache.james.GuiceJamesServer;
 import org.apache.james.backends.cassandra.EmbeddedCassandra;
+import org.apache.james.backends.es.EmbeddedElasticSearch;
 import org.apache.james.dnsservice.api.DNSService;
-import org.apache.james.mailbox.elasticsearch.EmbeddedElasticSearch;
+import org.apache.james.mailbox.elasticsearch.MailboxElasticsearchConstants;
 import org.apache.james.modules.CassandraJmapServerModule;
+import org.apache.james.modules.protocols.ProtocolHandlerModule;
+import org.apache.james.modules.protocols.SMTPServerModule;
 import org.apache.james.mpt.monitor.SystemLoggingMonitor;
 import org.apache.james.mpt.session.ExternalSessionFactory;
 import org.apache.james.mpt.smtp.SmtpHostSystem;
 import org.apache.james.mpt.smtp.dns.InMemoryDNSService;
+import org.apache.james.utils.DataProbeImpl;
 import org.junit.rules.TemporaryFolder;
 
 import com.google.common.base.Preconditions;
@@ -46,8 +50,8 @@ public class CassandraJamesSmtpHostSystem extends ExternalSessionFactory impleme
     private InMemoryDNSService inMemoryDNSService;
 
 
-    public CassandraJamesSmtpHostSystem() {
-        super("localhost", 1025, new SystemLoggingMonitor(), "220 mydomain.tld smtp");
+    public CassandraJamesSmtpHostSystem(int smtpPort) {
+        super("localhost", smtpPort, new SystemLoggingMonitor(), "220 mydomain.tld smtp");
     }
 
     @Override
@@ -58,19 +62,19 @@ public class CassandraJamesSmtpHostSystem extends ExternalSessionFactory impleme
         String domain = split.next();
 
         createDomainIfNeeded(domain);
-        jamesServer.serverProbe().addUser(userAtDomain, password);
+        jamesServer.getProbe(DataProbeImpl.class).addUser(userAtDomain, password);
         return true;
     }
 
     private void createDomainIfNeeded(String domain) throws Exception {
-        if (!jamesServer.serverProbe().containsDomain(domain)) {
-            jamesServer.serverProbe().addDomain(domain);
+        if (!jamesServer.getProbe(DataProbeImpl.class).containsDomain(domain)) {
+            jamesServer.getProbe(DataProbeImpl.class).addDomain(domain);
         }
     }
 
     @Override
     public void addAddressMapping(String user, String domain, String address) throws Exception {
-        jamesServer.serverProbe().addAddressMapping(user, domain, address);
+        jamesServer.getProbe(DataProbeImpl.class).addAddressMapping(user, domain, address);
     }
 
     @Override
@@ -86,7 +90,7 @@ public class CassandraJamesSmtpHostSystem extends ExternalSessionFactory impleme
         inMemoryDNSService = new InMemoryDNSService();
         folder = new TemporaryFolder();
         folder.create();
-        embeddedElasticSearch = new EmbeddedElasticSearch(folder.getRoot().toPath());
+        embeddedElasticSearch = new EmbeddedElasticSearch(folder.getRoot().toPath(), MailboxElasticsearchConstants.MAILBOX_INDEX);
         embeddedElasticSearch.before();
         embeddedCassandra = EmbeddedCassandra.createStartServer();
         jamesServer = createJamesServer();
@@ -103,10 +107,9 @@ public class CassandraJamesSmtpHostSystem extends ExternalSessionFactory impleme
     public InMemoryDNSService getInMemoryDnsService() {
         return inMemoryDNSService;
     }
-
     protected GuiceJamesServer createJamesServer() {
         return new GuiceJamesServer()
-            .combineWith(CassandraJamesServerMain.cassandraServerModule)
+            .combineWith(CassandraJamesServerMain.cassandraServerModule, new SMTPServerModule(), new ProtocolHandlerModule())
             .overrideWith(new CassandraJmapServerModule(folder::getRoot, embeddedElasticSearch, embeddedCassandra),
                 (binder) -> binder.bind(DNSService.class).toInstance(inMemoryDNSService));
     }

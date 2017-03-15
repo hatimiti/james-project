@@ -21,6 +21,7 @@ package org.apache.james.jmap;
 import static javax.servlet.http.HttpServletResponse.SC_BAD_REQUEST;
 import static javax.servlet.http.HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
 
+import java.io.EOFException;
 import java.io.IOException;
 
 import javax.inject.Inject;
@@ -29,7 +30,10 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,10 +43,12 @@ public class UploadServlet extends HttpServlet {
     private static final Logger LOGGER = LoggerFactory.getLogger(UploadServlet.class);
 
     private final UploadHandler uploadHandler;
+    private final MetricFactory metricFactory;
 
     @Inject
-    private UploadServlet(UploadHandler uploadHandler) {
+    private UploadServlet(UploadHandler uploadHandler, MetricFactory metricFactory) {
         this.uploadHandler = uploadHandler;
+        this.metricFactory = metricFactory;
     }
 
     @Override
@@ -51,12 +57,30 @@ public class UploadServlet extends HttpServlet {
         if (Strings.isNullOrEmpty(contentType)) {
             resp.setStatus(SC_BAD_REQUEST);
         } else {
+            TimeMetric timeMetric = metricFactory.timer("JMAP-upload-post");
             try {
-                uploadHandler.handle(contentType, req.getInputStream(), resp);
-            } catch (IOException | MailboxException e) {
-                LOGGER.error("Error while uploading content", e);
-                resp.setStatus(SC_INTERNAL_SERVER_ERROR);
+                uploadHandler.handle(contentType, req.getInputStream(), getMailboxSession(req), resp);
+            } catch (IOException e) {
+                if (e instanceof EOFException) {
+                    LOGGER.info("An upload has been canceled before the end", e);
+                } else {
+                    internalServerError(resp, e);
+                }
+            } catch (MailboxException e) {
+                internalServerError(resp, e);
+            } finally {
+                timeMetric.stopAndPublish();
             }
         }
     }
+
+    private void internalServerError(HttpServletResponse resp, Exception e) {
+        LOGGER.error("Error while uploading content", e);
+        resp.setStatus(SC_INTERNAL_SERVER_ERROR);
+    }
+
+    private MailboxSession getMailboxSession(HttpServletRequest req) {
+        return (MailboxSession) req.getAttribute(AuthenticationFilter.MAILBOX_SESSION);
+    }
+
 }

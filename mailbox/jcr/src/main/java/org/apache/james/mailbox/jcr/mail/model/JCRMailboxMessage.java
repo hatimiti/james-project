@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 
@@ -38,23 +39,23 @@ import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.jackrabbit.JcrConstants;
 import org.apache.jackrabbit.commons.JcrUtils;
+import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.jcr.JCRId;
 import org.apache.james.mailbox.jcr.JCRImapConstants;
 import org.apache.james.mailbox.jcr.Persistent;
-import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
+import org.apache.james.mailbox.model.MessageAttachment;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.store.mail.model.FlagsBuilder;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
-import org.apache.james.mailbox.store.mail.model.MessageId;
 import org.apache.james.mailbox.store.mail.model.Property;
-import org.apache.james.mailbox.store.mail.model.impl.MessageUidComparator;
 import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
+import org.apache.james.mailbox.store.search.comparator.UidComparator;
 import org.slf4j.Logger;
 
 public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Persistent {
 
-    private static final MessageUidComparator MESSAGE_UID_COMPARATOR = new MessageUidComparator();
+    private static final Comparator<MailboxMessage> MESSAGE_UID_COMPARATOR = new UidComparator();
     
     private Node node;
     private final Logger logger;
@@ -66,7 +67,8 @@ public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Pers
     private int bodyStartOctet;
     
     private JCRId mailboxUUID;
-    private long uid;
+    private MessageUid uid;
+    private MessageId messageId;
     private Date internalDate;
     private long size;
     private boolean answered;
@@ -106,10 +108,11 @@ public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Pers
         this.node = node;
     }
     
-    public JCRMailboxMessage(JCRId mailboxUUID, Date internalDate, int size, Flags flags, SharedInputStream content,
+    public JCRMailboxMessage(JCRId mailboxUUID, MessageId messageId, Date internalDate, int size, Flags flags, SharedInputStream content,
                              int bodyStartOctet, PropertyBuilder propertyBuilder, Logger logger) {
         super();
         this.mailboxUUID = mailboxUUID;
+        this.messageId = messageId;
         this.internalDate = internalDate;
         this.size = size;
         this.logger = logger;
@@ -131,8 +134,9 @@ public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Pers
     /**
      * Create a copy of the given message
      */
-    public JCRMailboxMessage(JCRId mailboxUUID, long uid, long modSeq, JCRMailboxMessage message, Logger logger) throws MailboxException {
+    public JCRMailboxMessage(JCRId mailboxUUID, MessageUid uid, MessageId messageId, long modSeq, JCRMailboxMessage message, Logger logger) throws MailboxException {
         this.mailboxUUID = mailboxUUID;
+        this.messageId = messageId;
         this.internalDate = message.getInternalDate();
         this.size = message.getFullContentOctets();
         setFlags(message.createFlags());
@@ -275,7 +279,7 @@ public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Pers
         if (isPersistent() == false) {
             node.setProperty(SIZE_PROPERTY, getFullContentOctets());
             node.setProperty(MAILBOX_UUID_PROPERTY, getMailboxId().serialize());
-            node.setProperty(UID_PROPERTY, getUid());
+            node.setProperty(UID_PROPERTY, getUid().asLong());
             node.setProperty(MODSEQ_PROPERTY, getModSeq());
 
             if (getInternalDate() == null) {
@@ -374,7 +378,7 @@ public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Pers
 
     @Override
     public MessageId getMessageId() {
-        return new DefaultMessageId(getMailboxId(), getUid());
+        return messageId;
     }
 
     @Override
@@ -409,15 +413,15 @@ public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Pers
 
 
     @Override
-    public long getUid() {
+    public MessageUid getUid() {
         if (isPersistent()) {
             try {
-                return node.getProperty(UID_PROPERTY).getLong();
+                return MessageUid.of(node.getProperty(UID_PROPERTY).getLong());
 
             } catch (RepositoryException e) {
                 logger.error("Unable to access property " + UID_PROPERTY, e);
             }
-            return 0;
+            return MessageUid.MIN_VALUE;
         }
         return uid;
     }
@@ -653,10 +657,10 @@ public class JCRMailboxMessage implements MailboxMessage, JCRImapConstants, Pers
     }
 
     @Override
-    public void setUid(long uid) {
+    public void setUid(MessageUid uid) {
         if (isPersistent()) {
             try {
-                node.setProperty(UID_PROPERTY, uid);
+                node.setProperty(UID_PROPERTY, uid.asLong());
             } catch (RepositoryException e) {
                 logger.error("Unable to set uid", e);
             }

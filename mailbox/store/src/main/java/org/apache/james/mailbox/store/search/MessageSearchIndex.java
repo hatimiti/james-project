@@ -19,19 +19,21 @@
 
 package org.apache.james.mailbox.store.search;
 
-import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Iterator;
-import java.util.Map;
+import java.util.List;
 
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.model.MultimailboxesSearchQuery;
 import org.apache.james.mailbox.model.SearchQuery;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 
+import com.google.common.base.Optional;
 
 /**
  * An index which can be used to search for MailboxMessage UID's that match a {@link SearchQuery}.
@@ -44,13 +46,37 @@ public interface MessageSearchIndex {
     /**
      * Return all uids of the previous indexed {@link Mailbox}'s which match the {@link SearchQuery}
      */
-    Iterator<Long> search(MailboxSession session, Mailbox mailbox, SearchQuery searchQuery) throws MailboxException;
+    Iterator<MessageUid> search(MailboxSession session, Mailbox mailbox, SearchQuery searchQuery) throws MailboxException;
 
     /**
      * Return all uids of all {@link Mailbox}'s the current user has access to which match the {@link SearchQuery}
      */
-    Map<MailboxId, Collection<Long>> search(MailboxSession session, MultimailboxesSearchQuery searchQuery) throws MailboxException;
+    List<MessageId> search(MailboxSession session, MultimailboxesSearchQuery searchQuery, long limit) throws MailboxException;
 
     EnumSet<MailboxManager.SearchCapabilities> getSupportedCapabilities();
+
+    class SearchResult {
+        private final Optional<MessageId> messageId;
+        private final MailboxId mailboxId;
+        private final MessageUid messageUid;
+
+        public SearchResult(Optional<MessageId> messageId, MailboxId mailboxId, MessageUid messageUid) {
+            this.messageId = messageId;
+            this.mailboxId = mailboxId;
+            this.messageUid = messageUid;
+        }
+
+        public Optional<MessageId> getMessageId() {
+            return messageId;
+        }
+
+        public MailboxId getMailboxId() {
+            return mailboxId;
+        }
+
+        public MessageUid getMessageUid() {
+            return messageUid;
+        }
+    }
 
 }

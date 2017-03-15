@@ -18,19 +18,23 @@
  ****************************************************************/
 package org.apache.james.mailbox.store.mail.model;
 
+import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.model.MailboxACL;
 import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MailboxPath;
 
 /**
  * Models long term mailbox data.
  */
 public interface Mailbox {
-
+    void setMailboxId(MailboxId id);
     /**
      * Gets the unique mailbox ID.
      * @return mailbox id
      */
     MailboxId getMailboxId();
+
+    MailboxPath generateAssociatedPath();
 
     /**
      * Gets the current namespace for this mailbox.
@@ -88,5 +92,7 @@ public interface Mailbox {
      * @param acl
      */
     void setACL(MailboxACL acl);
+
+    boolean isChildOf(Mailbox potentialParent, MailboxSession mailboxSession);
     
 }

@@ -18,20 +18,22 @@
  ****************************************************************/
 package org.apache.james.mailbox.jpa;
 
+import javax.inject.Inject;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityManagerFactory;
 
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.jpa.mail.JPAAnnotationMapper;
 import org.apache.james.mailbox.jpa.mail.JPAMailboxMapper;
 import org.apache.james.mailbox.jpa.mail.JPAMessageMapper;
 import org.apache.james.mailbox.jpa.user.JPASubscriptionMapper;
-import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
 import org.apache.james.mailbox.store.mail.AnnotationMapper;
 import org.apache.james.mailbox.store.mail.AttachmentMapper;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
+import org.apache.james.mailbox.store.mail.MessageIdMapper;
 import org.apache.james.mailbox.store.mail.MessageMapper;
 import org.apache.james.mailbox.store.mail.ModSeqProvider;
 import org.apache.james.mailbox.store.mail.NoopAttachmentMapper;
@@ -48,6 +50,7 @@ public class JPAMailboxSessionMapperFactory extends MailboxSessionMapperFactory 
     private final UidProvider uidProvider;
     private final ModSeqProvider modSeqProvider;
 
+    @Inject
     public JPAMailboxSessionMapperFactory(EntityManagerFactory entityManagerFactory, UidProvider uidProvider, ModSeqProvider modSeqProvider) {
         this.entityManagerFactory = entityManagerFactory;
         this.uidProvider = uidProvider;
@@ -63,6 +66,11 @@ public class JPAMailboxSessionMapperFactory extends MailboxSessionMapperFactory 
     @Override
     public MessageMapper createMessageMapper(MailboxSession session) {
         return new JPAMessageMapper(session, uidProvider, modSeqProvider, entityManagerFactory);
+    }
+
+    @Override
+    public MessageIdMapper createMessageIdMapper(MailboxSession session) throws MailboxException {
+        throw new NotImplementedException();
     }
 
     @Override
@@ -85,9 +93,19 @@ public class JPAMailboxSessionMapperFactory extends MailboxSessionMapperFactory 
     }
 
     @Override
-    public AnnotationMapper createAnnotationMapper(MailboxId mailboxId, MailboxSession session)
+    public AnnotationMapper createAnnotationMapper(MailboxSession session)
             throws MailboxException {
-        throw new NotImplementedException();
+        return new JPAAnnotationMapper(entityManagerFactory);
+    }
+
+    @Override
+    public UidProvider getUidProvider() {
+        return uidProvider;
+    }
+
+    @Override
+    public ModSeqProvider getModSeqProvider() {
+        return modSeqProvider;
     }
 
 }

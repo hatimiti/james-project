@@ -1,8 +1,8 @@
 {
-    "id": "username|mailbox|1",
+    "id": "1",
     "blobId": "myBlobId",
     "threadId": "myThreadId",
-    "mailboxIds": ["mailboxId1", "mailboxId2"],
+    "mailboxIds": ["1", "2"],
     "inReplyToMessageId": "myInReplyToMessageId",
     "isUnread": true,
     "isFlagged": true,

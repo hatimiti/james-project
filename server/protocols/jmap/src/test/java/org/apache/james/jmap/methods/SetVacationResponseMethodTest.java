@@ -20,6 +20,8 @@
 package org.apache.james.jmap.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -43,6 +45,7 @@ import org.apache.james.jmap.model.SetVacationRequest;
 import org.apache.james.jmap.model.SetVacationResponse;
 import org.apache.james.jmap.model.VacationResponse;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.metrics.logger.DefaultMetricFactory;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -68,6 +71,11 @@ public class SetVacationResponseMethodTest {
         public List<Locale> getLocalePreferences() {
             return null;
         }
+
+        @Override
+        public boolean isSameUser(String username) {
+            return USERNAME.equalsIgnoreCase(username);
+        }
     };
     public static final String SUBJECT = "subject";
 
@@ -83,7 +91,7 @@ public class SetVacationResponseMethodTest {
         mailboxSession = mock(MailboxSession.class);
         vacationRepository = mock(VacationRepository.class);
         notificationRegistry = mock(NotificationRegistry.class);
-        testee = new SetVacationResponseMethod(vacationRepository, notificationRegistry);
+        testee = new SetVacationResponseMethod(vacationRepository, notificationRegistry, new DefaultMetricFactory());
     }
 
     @Test(expected = NullPointerException.class)
@@ -186,15 +194,10 @@ public class SetVacationResponseMethodTest {
                     .subject(Optional.of(SUBJECT))
                     .build()))
             .build();
-        Vacation vacation = Vacation.builder()
-            .enabled(false)
-            .textBody(TEXT_BODY)
-            .subject(Optional.of(SUBJECT))
-            .build();
         AccountId accountId = AccountId.fromString(USERNAME);
 
         when(mailboxSession.getUser()).thenReturn(USER);
-        when(vacationRepository.modifyVacation(accountId, vacation)).thenReturn(CompletableFuture.completedFuture(null));
+        when(vacationRepository.modifyVacation(eq(accountId), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         Stream<JmapResponse> result = testee.process(setVacationRequest, clientId, mailboxSession);
 
@@ -207,7 +210,7 @@ public class SetVacationResponseMethodTest {
             .build();
         assertThat(result).containsExactly(expected);
 
-        verify(vacationRepository).modifyVacation(accountId, vacation);
+        verify(vacationRepository).modifyVacation(eq(accountId), any());
         verify(notificationRegistry).flush(accountId);
         verifyNoMoreInteractions(vacationRepository, notificationRegistry);
     }

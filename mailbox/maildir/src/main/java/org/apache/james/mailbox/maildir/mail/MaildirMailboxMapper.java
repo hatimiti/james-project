@@ -37,6 +37,7 @@ import org.apache.james.mailbox.maildir.MaildirMessageName;
 import org.apache.james.mailbox.maildir.MaildirStore;
 import org.apache.james.mailbox.model.MailboxACL;
 import org.apache.james.mailbox.model.MailboxConstants;
+import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
@@ -113,6 +114,12 @@ public class MaildirMailboxMapper extends NonTransactionalMapper implements Mail
         return cacheMailbox(mailbox);
     }
     
+    @Override
+    public Mailbox findMailboxById(MailboxId id) throws MailboxException, MailboxNotFoundException {
+        MaildirId mailboxId = (MaildirId)id;
+        return getCachedMailbox(mailboxId);
+    }
+    
     /**
      * @see org.apache.james.mailbox.store.mail.MailboxMapper#findMailboxWithPathLike(org.apache.james.mailbox.model.MailboxPath)
      */
@@ -153,7 +160,7 @@ public class MaildirMailboxMapper extends NonTransactionalMapper implements Mail
      * @see org.apache.james.mailbox.store.mail.MailboxMapper#save(org.apache.james.mailbox.store.mail.model.Mailbox)
      */
     @Override
-    public void save(Mailbox mailbox) throws MailboxException {
+    public MailboxId save(Mailbox mailbox) throws MailboxException {
         try {
             Mailbox originalMailbox = getCachedMailbox((MaildirId) mailbox.getMailboxId());
             MaildirFolder folder = maildirStore.createMaildirFolder(mailbox);
@@ -222,7 +229,8 @@ public class MaildirMailboxMapper extends NonTransactionalMapper implements Mail
             }
             folder.setACL(session, mailbox.getACL());
         }
-        
+        cacheMailbox(mailbox);
+        return mailbox.getMailboxId();
     }
 
     /**

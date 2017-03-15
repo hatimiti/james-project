@@ -24,9 +24,14 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.james.mailet.MailetMatcherDescriptor.Type;
+import org.apache.mailet.Experimental;
 import org.apache.mailet.Mailet;
 import org.apache.mailet.Matcher;
 import org.apache.maven.artifact.Artifact;
@@ -34,7 +39,10 @@ import org.apache.maven.artifact.DependencyResolutionRequiredException;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.project.MavenProject;
 
+import com.google.common.base.Predicate;
+import com.google.common.collect.FluentIterable;
 import com.thoughtworks.qdox.JavaDocBuilder;
+import com.thoughtworks.qdox.model.Annotation;
 import com.thoughtworks.qdox.model.JavaClass;
 
 /**
@@ -112,6 +120,8 @@ public class DefaultDescriptorsExtractor {
                 logInterfaces(log, klass, allInterfaces);
             }
 
+        } catch (NoClassDefFoundError e) {
+            log.error("NotFound: " + e.getMessage());
         } catch (ClassNotFoundException e) {
             log.error("NotFound: " + e.getMessage());
         } catch (SecurityException e) {
@@ -159,6 +169,7 @@ public class DefaultDescriptorsExtractor {
         result.setFullyQualifiedName(nameOfClass);
         result.setClassDocs(nextClass.getComment());
         result.setType(type);
+        result.setExperimental(isExperimental(nextClass));
 
         try {
             final Object instance = klass.newInstance();
@@ -182,6 +193,18 @@ public class DefaultDescriptorsExtractor {
         return result;
     }
 
+
+    private boolean isExperimental(JavaClass javaClass) {
+        return FluentIterable.of(javaClass.getAnnotations())
+            .anyMatch(new Predicate<Annotation>() {
+
+                @Override
+                public boolean apply(Annotation annotation) {
+                    return annotation.getType().getValue()
+                            .equals(Experimental.class.getName());
+                }
+            });
+    }
 
     private void handleInfoLoadFailure(Log log, String nameOfClass,
             final Type type, Exception e) {

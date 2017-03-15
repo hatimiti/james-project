@@ -24,9 +24,12 @@ import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxManager;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxSessionMapperFactory;
+import org.apache.james.mailbox.inmemory.InMemoryMessageId;
+import org.apache.james.mailbox.inmemory.InMemoryMessageIdManager;
+import org.apache.james.mailbox.store.FakeAuthenticator;
+import org.apache.james.mailbox.store.FakeAuthorizator;
 import org.apache.james.mailbox.store.JVMMailboxPathLocker;
 import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
-import org.apache.james.mailbox.store.MockAuthenticator;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.junit.Ignore;
 
@@ -42,11 +45,14 @@ public class SimpleMessageSearchIndexTest extends AbstractMessageSearchIndexTest
         messageSearchIndex = new SimpleMessageSearchIndex(mapperFactory, mapperFactory);
         storeMailboxManager = new InMemoryMailboxManager(
             mapperFactory,
-            new MockAuthenticator(),
+            new FakeAuthenticator(),
+            FakeAuthorizator.defaultReject(),
             new JVMMailboxPathLocker(),
             new UnionMailboxACLResolver(),
             new SimpleGroupMembershipResolver(),
-            new MessageParser());
+            new MessageParser(),
+            new InMemoryMessageId.Factory());
+        messageIdManager = new InMemoryMessageIdManager(storeMailboxManager);
         storeMailboxManager.setMessageSearchIndex(messageSearchIndex);
         storeMailboxManager.init();
     }

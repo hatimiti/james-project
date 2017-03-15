@@ -25,13 +25,15 @@ import org.apache.james.mailbox.exception.SubscriptionException;
 import org.apache.james.mailbox.maildir.mail.MaildirMailboxMapper;
 import org.apache.james.mailbox.maildir.mail.MaildirMessageMapper;
 import org.apache.james.mailbox.maildir.user.MaildirSubscriptionMapper;
-import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
 import org.apache.james.mailbox.store.mail.AnnotationMapper;
 import org.apache.james.mailbox.store.mail.AttachmentMapper;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
+import org.apache.james.mailbox.store.mail.MessageIdMapper;
 import org.apache.james.mailbox.store.mail.MessageMapper;
+import org.apache.james.mailbox.store.mail.ModSeqProvider;
 import org.apache.james.mailbox.store.mail.NoopAttachmentMapper;
+import org.apache.james.mailbox.store.mail.UidProvider;
 import org.apache.james.mailbox.store.user.SubscriptionMapper;
 
 public class MaildirMailboxSessionMapperFactory extends
@@ -58,6 +60,11 @@ public class MaildirMailboxSessionMapperFactory extends
     }
 
     @Override
+    public MessageIdMapper createMessageIdMapper(MailboxSession session) throws MailboxException {
+        throw new NotImplementedException();
+    }
+
+    @Override
     public SubscriptionMapper createSubscriptionMapper(MailboxSession session)
             throws SubscriptionException {
         return new MaildirSubscriptionMapper(store);
@@ -71,8 +78,18 @@ public class MaildirMailboxSessionMapperFactory extends
 
 
     @Override
-    public AnnotationMapper createAnnotationMapper(MailboxId mailboxId, MailboxSession session)
+    public AnnotationMapper createAnnotationMapper(MailboxSession session)
             throws MailboxException {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public UidProvider getUidProvider() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public ModSeqProvider getModSeqProvider() {
         throw new NotImplementedException();
     }
 

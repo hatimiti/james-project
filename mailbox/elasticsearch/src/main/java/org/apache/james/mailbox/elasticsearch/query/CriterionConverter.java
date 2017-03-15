@@ -78,6 +78,8 @@ public class CriterionConverter {
 
         registerCriterionConverter(SearchQuery.InternalDateCriterion.class,
             criterion -> dateRangeFilter(JsonMessageConstants.DATE, criterion.getOperator()));
+
+        registerCriterionConverter(SearchQuery.AttachmentCriterion.class, this::convertAttachmentCriterion);
     }
     
     @SuppressWarnings("unchecked")
@@ -113,6 +115,10 @@ public class CriterionConverter {
 
     public QueryBuilder convertCriterion(SearchQuery.Criterion criterion) {
         return criterionConverterMap.get(criterion.getClass()).apply(criterion);
+    }
+
+    private QueryBuilder convertAttachmentCriterion(SearchQuery.AttachmentCriterion criterion) {
+        return termQuery(JsonMessageConstants.HAS_ATTACHMENT, criterion.getOperator().isSet());
     }
 
     private QueryBuilder convertCustomFlagCriterion(SearchQuery.CustomFlagCriterion criterion) {
@@ -228,10 +234,10 @@ public class CriterionConverter {
                     .map(this::uidRangeFilter), BoolQueryBuilder::should));
     }
 
-    private QueryBuilder uidRangeFilter(SearchQuery.NumericRange numericRange) {
-        return rangeQuery(JsonMessageConstants.ID)
-                .lte(numericRange.getHighValue())
-                .gte(numericRange.getLowValue());
+    private QueryBuilder uidRangeFilter(SearchQuery.UidRange numericRange) {
+        return rangeQuery(JsonMessageConstants.UID)
+                .lte(numericRange.getHighValue().asLong())
+                .gte(numericRange.getLowValue().asLong());
     }
 
     private QueryBuilder convertHeader(SearchQuery.HeaderCriterion headerCriterion) {

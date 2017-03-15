@@ -57,6 +57,14 @@
 
     <!-- 
     ===========================================================================
+       Authorizator
+    ===========================================================================
+    -->
+
+    <import resource="classpath:META-INF/org/apache/james/spring-mailbox-authorizator.xml"/>
+
+    <!-- 
+    ===========================================================================
        Queues
     ===========================================================================
     -->
@@ -140,6 +148,9 @@
 
     <!-- Event system -->
     <bean class="org.apache.james.container.spring.bean.factorypostprocessor.EventsConfigurationBeanFactoryPostProcessor"/>
+    <bean id="dispatcher" class="org.apache.james.mailbox.store.event.MailboxEventDispatcher">
+        <constructor-arg index="0" ref="delegating-listener"/>
+    </bean>
 
     <import resource="classpath:META-INF/spring/event-system.xml"/>
 
@@ -285,9 +296,28 @@
         <import resource="classpath:jetm-monitoring.conf" />
     -->
 
+    <!--
+    ======================================================================
+    Metrics
+    ======================================================================
+    -->
 
-    <beans profile="cassandra">
-        <import resource="classpath:META-INF/cassandra-session.xml"/>
-    </beans>
+    <bean id="metricFactory" class="org.apache.james.metrics.dropwizard.DropWizardMetricFactory">
+        <constructor-arg index="0" ref="metricRegistry"/>
+    </bean>
+
+    <bean id="metricRegistry" class="com.codahale.metrics.MetricRegistry"/>
+
+    <!--
+    ======================================================================
+    JSPF
+    ======================================================================
+    -->
+
+    <bean id="jspfDnsService" class="org.apache.james.jspf.impl.DNSServiceXBillImpl">
+        <constructor-arg index="0" ref="jspfLogger"/>
+    </bean>
+
+    <bean id="jspfLogger" class="org.apache.james.smtpserver.fastfail.SPFHandler.SPFLogger"/>
 
 </beans>

@@ -33,11 +33,11 @@ import static org.apache.james.mailbox.hbase.HBaseNames.MESSAGES_TABLE;
 import static org.apache.james.mailbox.hbase.HBaseNames.MESSAGE_DATA_BODY_CF;
 import static org.apache.james.mailbox.hbase.HBaseNames.MESSAGE_DATA_HEADERS_CF;
 import static org.apache.james.mailbox.hbase.HBaseNames.MESSAGE_MODSEQ;
-import static org.apache.james.mailbox.hbase.HBaseUtils.customMessageRowKey;
 import static org.apache.james.mailbox.hbase.HBaseUtils.flagsToPut;
 import static org.apache.james.mailbox.hbase.HBaseUtils.messageMetaFromResult;
 import static org.apache.james.mailbox.hbase.HBaseUtils.messageRowKey;
 import static org.apache.james.mailbox.hbase.HBaseUtils.metadataToPut;
+import static org.apache.james.mailbox.hbase.HBaseUtils.minMessageRowKey;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -64,9 +64,13 @@ import org.apache.hadoop.hbase.filter.SingleColumnValueExcludeFilter;
 import org.apache.hadoop.hbase.filter.SingleColumnValueFilter;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.hbase.HBaseId;
 import org.apache.james.mailbox.hbase.io.ChunkOutputStream;
+import org.apache.james.mailbox.model.MailboxCounters;
+import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.mailbox.model.MessageId.Factory;
 import org.apache.james.mailbox.model.MessageMetaData;
 import org.apache.james.mailbox.model.MessageRange;
 import org.apache.james.mailbox.model.MessageRange.Type;
@@ -78,7 +82,11 @@ import org.apache.james.mailbox.store.mail.ModSeqProvider;
 import org.apache.james.mailbox.store.mail.UidProvider;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
+import org.apache.james.mailbox.store.mail.utils.ApplicableFlagCalculator;
 import org.apache.james.mailbox.store.transaction.NonTransactionalMapper;
+
+import com.google.common.base.Optional;
+import com.google.common.collect.Iterables;
 
 /**
  * HBase implementation of a {@link MessageMapper}.
@@ -91,14 +99,26 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
     private final MailboxSession mailboxSession;
     private final UidProvider uidProvider;
     private final ModSeqProvider modSeqProvider;
+    private final Factory messageIdFactory;
 
     public HBaseMessageMapper(MailboxSession session,
             final UidProvider uidProvider,
-            ModSeqProvider modSeqProvider, Configuration conf) {
+            ModSeqProvider modSeqProvider, 
+            MessageId.Factory messageIdFactory, 
+            Configuration conf) {
         this.mailboxSession = session;
         this.modSeqProvider = modSeqProvider;
         this.uidProvider = uidProvider;
+        this.messageIdFactory = messageIdFactory;
         this.conf = conf;
+    }
+
+    @Override
+    public MailboxCounters getMailboxCounters(Mailbox mailbox) throws MailboxException {
+        return MailboxCounters.builder()
+            .count(countMessagesInMailbox(mailbox))
+            .unseen(countUnseenMessagesInMailbox(mailbox))
+            .build();
     }
 
     @Override
@@ -110,8 +130,8 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         HBaseId mailboxId = (HBaseId) mailbox.getMailboxId();
         try {
             List<MailboxMessage> results;
-            long from = set.getUidFrom();
-            final long to = set.getUidTo();
+            MessageUid from = set.getUidFrom();
+            final MessageUid to = set.getUidTo();
             final Type type = set.getType();
 
             switch (type) {
@@ -139,7 +159,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
     private List<MailboxMessage> findMessagesInMailbox(HBaseId mailboxId, int batchSize, boolean flaggedForDelete) throws IOException {
         List<MailboxMessage> messageList = new ArrayList<MailboxMessage>();
         HTable messages = new HTable(conf, MESSAGES_TABLE);
-        Scan scan = new Scan(customMessageRowKey(mailboxId, 0L),
+        Scan scan = new Scan(minMessageRowKey(mailboxId),
                 new PrefixFilter(mailboxId.toBytes()));
         if (flaggedForDelete) {
             SingleColumnValueFilter filter = new SingleColumnValueFilter(MESSAGES_META_CF, FLAGS_DELETED, CompareOp.EQUAL, MARKER_PRESENT);
@@ -155,7 +175,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         Result result;
         long count = batchSize > 0 ? batchSize : Long.MAX_VALUE;
         while (((result = scanner.next()) != null) && (count > 0)) {
-            messageList.add(messageMetaFromResult(conf, result));
+            messageList.add(messageMetaFromResult(conf, result, messageIdFactory));
             count--;
         }
         scanner.close();
@@ -165,10 +185,10 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         return messageList;
     }
 
-    private List<MailboxMessage> findMessagesInMailboxWithUID(HBaseId mailboxId, long messageUid, boolean flaggedForDelete) throws IOException {
+    private List<MailboxMessage> findMessagesInMailboxWithUID(HBaseId mailboxId, MessageUid from, boolean flaggedForDelete) throws IOException {
         List<MailboxMessage> messageList = new ArrayList<MailboxMessage>();
         HTable messages = new HTable(conf, MESSAGES_TABLE);
-        Get get = new Get(messageRowKey(mailboxId, messageUid));
+        Get get = new Get(messageRowKey(mailboxId, from));
         get.setMaxVersions(1);
         /* we exclude the message content column family because it could be too large.
          * the content will be pulled from HBase on demand by using a a ChunkedInputStream implementation.
@@ -182,19 +202,19 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         Result result = messages.get(get);
         MailboxMessage message = null;
         if (!result.isEmpty()) {
-            message = messageMetaFromResult(conf, result);
+            message = messageMetaFromResult(conf, result, messageIdFactory);
             messageList.add(message);
         }
         messages.close();
         return messageList;
     }
 
-    private List<MailboxMessage> findMessagesInMailboxAfterUID(HBaseId mailboxId, long from, int batchSize, boolean flaggedForDelete) throws IOException {
+    private List<MailboxMessage> findMessagesInMailboxAfterUID(HBaseId mailboxId, MessageUid messageUid, int batchSize, boolean flaggedForDelete) throws IOException {
         List<MailboxMessage> messageList = new ArrayList<MailboxMessage>();
         HTable messages = new HTable(conf, MESSAGES_TABLE);
         // uids are stored in reverse so we need to search
-        Scan scan = new Scan(messageRowKey(mailboxId, Long.MAX_VALUE),
-                messageRowKey(mailboxId, from - 1));
+        
+        Scan scan = new Scan(messageRowKey(mailboxId, MessageUid.MAX_VALUE), previousMessageRowKey(mailboxId, messageUid));
         if (flaggedForDelete) {
             SingleColumnValueFilter filter = new SingleColumnValueFilter(MESSAGES_META_CF, FLAGS_DELETED, CompareOp.EQUAL, MARKER_PRESENT);
             filter.setFilterIfMissing(true);
@@ -209,7 +229,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         Result result;
         long count = batchSize > 0 ? batchSize : Long.MAX_VALUE;
         while (((result = scanner.next()) != null) && (count > 0)) {
-            messageList.add(messageMetaFromResult(conf, result));
+            messageList.add(messageMetaFromResult(conf, result, messageIdFactory));
             count--;
         }
         scanner.close();
@@ -219,16 +239,24 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         return messageList;
     }
 
-    private List<MailboxMessage> findMessagesInMailboxBetweenUIDs(HBaseId mailboxId, long from, long to, int batchSize, boolean flaggedForDelete) throws IOException {
+    private byte[] previousMessageRowKey(HBaseId mailboxId, MessageUid messageUid) {
+        if (messageUid.isFirst()) {
+            return minMessageRowKey(mailboxId);
+        } else {
+            return messageRowKey(mailboxId, messageUid.previous());
+        }
+    }
+
+    private List<MailboxMessage> findMessagesInMailboxBetweenUIDs(HBaseId mailboxId, MessageUid from, MessageUid to, int batchSize, boolean flaggedForDelete) throws IOException {
         List<MailboxMessage> messageList = new ArrayList<MailboxMessage>();
-        if (from > to) {
+        if (from.compareTo(to) > 0) {
             return messageList;
         }
         HTable messages = new HTable(conf, MESSAGES_TABLE);
         /*TODO: check if Between should be inclusive or exclusive regarding limits.
          * HBase scan operaion are exclusive to the upper bound when providing stop row key.
          */
-        Scan scan = new Scan(messageRowKey(mailboxId, to), messageRowKey(mailboxId, from - 1));
+        Scan scan = new Scan(messageRowKey(mailboxId, to), previousMessageRowKey(mailboxId, from));
         if (flaggedForDelete) {
             SingleColumnValueFilter filter = new SingleColumnValueFilter(MESSAGES_META_CF, FLAGS_DELETED, CompareOp.EQUAL, MARKER_PRESENT);
             filter.setFilterIfMissing(true);
@@ -247,7 +275,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
             if (count == 0) {
                 break;
             }
-            MailboxMessage message = messageMetaFromResult(conf, result);
+            MailboxMessage message = messageMetaFromResult(conf, result, messageIdFactory);
             messageList.add(message);
             count--;
         }
@@ -259,12 +287,12 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
     }
 
     @Override
-    public Map<Long, MessageMetaData> expungeMarkedForDeletionInMailbox(Mailbox mailbox, MessageRange set) throws MailboxException {
+    public Map<MessageUid, MessageMetaData> expungeMarkedForDeletionInMailbox(Mailbox mailbox, MessageRange set) throws MailboxException {
         try {
-            final Map<Long, MessageMetaData> data;
+            final Map<MessageUid, MessageMetaData> data;
             final List<MailboxMessage> results;
-            final long from = set.getUidFrom();
-            final long to = set.getUidTo();
+            final MessageUid from = set.getUidFrom();
+            final MessageUid to = set.getUidTo();
             HBaseId mailboxId = (HBaseId) mailbox.getMailboxId();
 
             switch (set.getType()) {
@@ -333,18 +361,15 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         try {
             messages = new HTable(conf, MESSAGES_TABLE);
             /* Limit the number of entries scanned to just the mails in this mailbox */
-            Scan scan = new Scan(messageRowKey(mailboxId, Long.MAX_VALUE),
-                    messageRowKey(mailboxId, 0));
+            Scan scan = new Scan(
+                    messageRowKey(mailboxId, MessageUid.MAX_VALUE),
+                    minMessageRowKey(mailboxId));
             scan.addFamily(MESSAGES_META_CF);
             scan.setFilter(new SingleColumnValueExcludeFilter(MESSAGES_META_CF, FLAGS_SEEN, CompareOp.EQUAL, MARKER_MISSING));
             scan.setCaching(messages.getConfiguration().getInt("hbase.client.scanner.caching", 1) * 2);
             scan.setMaxVersions(1);
             scanner = messages.getScanner(scan);
-            long count = 0;
-            while (scanner.next() != null) {
-                count++;
-            }
-            return count;
+            return Iterables.size(scanner);
         } catch (IOException e) {
             throw new MailboxException("Search of first unseen message failed in mailbox " + mailbox, e);
         } finally {
@@ -399,14 +424,16 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
     }
 
     @Override
-    public Long findFirstUnseenMessageUid(Mailbox mailbox) throws MailboxException {
+    public MessageUid findFirstUnseenMessageUid(Mailbox mailbox) throws MailboxException {
         HTable messages = null;
         ResultScanner scanner = null;
         HBaseId mailboxId = (HBaseId) mailbox.getMailboxId();
         try {
             messages = new HTable(conf, MESSAGES_TABLE);
             /* Limit the number of entries scanned to just the mails in this mailbox */
-            Scan scan = new Scan(messageRowKey(mailboxId, Long.MAX_VALUE), messageRowKey(mailboxId, 0));
+            Scan scan = new Scan(
+                    messageRowKey(mailboxId, MessageUid.MAX_VALUE), 
+                    minMessageRowKey(mailboxId));
             scan.addFamily(MESSAGES_META_CF);
             // filter out all rows with FLAGS_SEEN qualifier
             SingleColumnValueFilter filter = new SingleColumnValueFilter(MESSAGES_META_CF, FLAGS_SEEN, CompareOp.EQUAL, MARKER_MISSING);
@@ -415,13 +442,13 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
             scan.setMaxVersions(1);
             scanner = messages.getScanner(scan);
             Result result;
-            Long lastUnseen = null;
+            MessageUid lastUnseen = null;
             byte[] row = null;
             while ((result = scanner.next()) != null) {
                 row = result.getRow();
             }
             if (row != null) {
-                lastUnseen = Long.MAX_VALUE - Bytes.toLong(row, 16, 8);
+                lastUnseen = MessageUid.of(Long.MAX_VALUE - Bytes.toLong(row, 16, 8));
             }
             return lastUnseen;
         } catch (IOException e) {
@@ -439,7 +466,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
     }
 
     @Override
-    public List<Long> findRecentMessageUidsInMailbox(Mailbox mailbox) throws MailboxException {
+    public List<MessageUid> findRecentMessageUidsInMailbox(Mailbox mailbox) throws MailboxException {
         /** TODO: improve performance by implementing a last seen and last recent value per mailbox.
          * maybe one more call to HBase is less expensive than iterating throgh all rows.
          */
@@ -449,8 +476,9 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         try {
             messages = new HTable(conf, MESSAGES_TABLE);
             /* Limit the number of entries scanned to just the mails in this mailbox */
-            Scan scan = new Scan(messageRowKey(mailboxId, Long.MAX_VALUE),
-                    messageRowKey(mailboxId, 0));
+            Scan scan = new Scan(
+                    messageRowKey(mailboxId, MessageUid.MAX_VALUE),
+                    minMessageRowKey(mailboxId));
             // we add the column, if it exists, the message is recent, else it is not
             scan.addColumn(MESSAGES_META_CF, FLAGS_RECENT);
             SingleColumnValueFilter filter = new SingleColumnValueFilter(MESSAGES_META_CF, FLAGS_RECENT, CompareOp.EQUAL, MARKER_PRESENT);
@@ -460,9 +488,9 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
 
             scanner = messages.getScanner(scan);
             Result result;
-            List<Long> uids = new ArrayList<Long>();
+            List<MessageUid> uids = new ArrayList<MessageUid>();
             while ((result = scanner.next()) != null) {
-                uids.add(Long.MAX_VALUE - Bytes.toLong(result.getRow(), 16, 8));
+                uids.add(MessageUid.of(Long.MAX_VALUE - Bytes.toLong(result.getRow(), 16, 8)));
             }
             Collections.reverse(uids);
             return uids;
@@ -533,8 +561,12 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
                     messages.flushCommits();
                 }
 
-                UpdatedFlags uFlags = new UpdatedFlags(member.getUid(), member.getModSeq(), originalFlags, newFlags);
-                updatedFlags.add(uFlags);
+                updatedFlags.add(UpdatedFlags.builder()
+                    .uid(member.getUid())
+                    .modSeq(member.getModSeq())
+                    .newFlags(newFlags)
+                    .oldFlags(originalFlags)
+                    .build());
             }
         } catch (IOException e) {
             throw new MailboxException("Error setting flags for messages in " + mailbox, e);
@@ -551,13 +583,9 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         return updatedFlags.iterator();
     }
 
-    /*
-     * (non-Javadoc)
-     * @see org.apache.james.mailbox.store.mail.MessageMapper#copy(org.apache.james.mailbox.store.mail.model.Mailbox, org.apache.james.mailbox.store.mail.model.MailboxMessage)
-     */
     @Override
     public MessageMetaData copy(Mailbox mailbox, MailboxMessage original) throws MailboxException {
-        long uid = uidProvider.nextUid(mailboxSession, mailbox);
+        MessageUid uid = uidProvider.nextUid(mailboxSession, mailbox);
         long modSeq = -1;
         if (modSeqProvider != null) {
             modSeq = modSeqProvider.nextModSeq(mailboxSession, mailbox);
@@ -565,42 +593,42 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         //TODO: check if creating a HBase message is the right thing to do
         HBaseId mailboxId = (HBaseId) mailbox.getMailboxId();
         HBaseMailboxMessage message = new HBaseMailboxMessage(conf,
-                mailboxId, uid, modSeq, original);
+                mailboxId, uid, original.getMessageId(), modSeq, original);
         return save(mailboxId, message);
     }
 
-    /*
-     * (non-Javadoc)
-     * @see org.apache.james.mailbox.store.mail.MessageMapper#copy(org.apache.james.mailbox.store.mail.model.Mailbox, org.apache.james.mailbox.store.mail.model.MailboxMessage)
-     */
     @Override
     public MessageMetaData move(Mailbox mailbox, MailboxMessage original) throws MailboxException {
     	//TODO implement if possible
     	throw new UnsupportedOperationException();
     }
 
-    /*
-     * (non-Javadoc)
-     * @see org.apache.james.mailbox.store.mail.MessageMapper#getLastUid(org.apache.james.mailbox.store.mail.model.Mailbox)
-     */
     @Override
-    public long getLastUid(Mailbox mailbox) throws MailboxException {
+    public Optional<MessageUid> getLastUid(Mailbox mailbox) throws MailboxException {
         return uidProvider.lastUid(mailboxSession, mailbox);
     }
 
-    /*
-     * (non-Javadoc)
-     * @see org.apache.james.mailbox.store.mail.MessageMapper#getHighestModSeq(org.apache.james.mailbox.store.mail.model.Mailbox)
-     */
     @Override
     public long getHighestModSeq(Mailbox mailbox) throws MailboxException {
         return modSeqProvider.highestModSeq(mailboxSession, mailbox);
     }
 
+    @Override
+    public Flags getApplicableFlag(Mailbox mailbox) throws MailboxException {
+        int maxBatchSize = -1;
+        boolean flaggedForDelete = true;
+        try {
+            return new ApplicableFlagCalculator(findMessagesInMailbox((HBaseId) mailbox.getMailboxId(), maxBatchSize, flaggedForDelete))
+                .computeApplicableFlags();
+        } catch (IOException e) {
+            throw new MailboxException("Search of all message failed in mailbox " + mailbox.getName(), e);
+        }
+    }
+
     /**
      * Save the {@link MailboxMessage} for the given {@link Mailbox} and return the {@link MessageMetaData}
      *
-     * @param mailbox
+     * @param mailboxId
      * @param message
      * @return metaData
      * @throws MailboxException
@@ -674,11 +702,11 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         }
     }
 
-    private void deleteDeletedMessagesInMailboxWithUID(HBaseId mailboxId, long uid) throws IOException {
+    private void deleteDeletedMessagesInMailboxWithUID(HBaseId mailboxId, MessageUid from) throws IOException {
         //TODO: do I have to check if the message is flagged for delete here?
         HTable messages = new HTable(conf, MESSAGES_TABLE);
         HTable mailboxes = new HTable(conf, MAILBOXES_TABLE);
-        Delete delete = new Delete(messageRowKey(mailboxId, uid));
+        Delete delete = new Delete(messageRowKey(mailboxId, from));
         messages.delete(delete);
         mailboxes.incrementColumnValue(mailboxId.toBytes(), MAILBOX_CF, MAILBOX_MESSAGE_COUNT, -1);
         mailboxes.incrementColumnValue(mailboxId.toBytes(), MAILBOX_CF, MAILBOX_HIGHEST_MODSEQ, 1);
@@ -686,7 +714,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         messages.close();
     }
 
-    private void deleteDeletedMessagesInMailboxBetweenUIDs(HBaseId mailboxId, long fromUid, long toUid) throws IOException {
+    private void deleteDeletedMessagesInMailboxBetweenUIDs(HBaseId mailboxId, MessageUid fromUid, MessageUid toUid) throws IOException {
         HTable messages = new HTable(conf, MESSAGES_TABLE);
         HTable mailboxes = new HTable(conf, MAILBOXES_TABLE);
         List<Delete> deletes = new ArrayList<Delete>();
@@ -712,7 +740,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         messages.close();
     }
 
-    private void deleteDeletedMessagesInMailboxAfterUID(HBaseId mailboxId, long fromUid) throws IOException {
+    private void deleteDeletedMessagesInMailboxAfterUID(HBaseId mailboxId, MessageUid fromUid) throws IOException {
         HTable messages = new HTable(conf, MESSAGES_TABLE);
         HTable mailboxes = new HTable(conf, MAILBOXES_TABLE);
         List<Delete> deletes = new ArrayList<Delete>();
@@ -745,7 +773,7 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         /*TODO: check if Between should be inclusive or exclusive regarding limits.
          * HBase scan operaion are exclusive to the upper bound when providing stop row key.
          */
-        Scan scan = new Scan(customMessageRowKey(mailboxId, 0L),
+        Scan scan = new Scan(minMessageRowKey(mailboxId),
                 new PrefixFilter(mailboxId.toBytes()));
         scan.addColumn(MESSAGES_META_CF, FLAGS_DELETED);
         SingleColumnValueFilter filter = new SingleColumnValueFilter(MESSAGES_META_CF, FLAGS_DELETED, CompareOp.EQUAL, MARKER_PRESENT);
@@ -765,8 +793,8 @@ public class HBaseMessageMapper extends NonTransactionalMapper implements Messag
         messages.close();
     }
 
-    private Map<Long, MessageMetaData> createMetaData(List<MailboxMessage> uids) {
-        final Map<Long, MessageMetaData> data = new HashMap<Long, MessageMetaData>();
+    private Map<MessageUid, MessageMetaData> createMetaData(List<MailboxMessage> uids) {
+        final Map<MessageUid, MessageMetaData> data = new HashMap<MessageUid, MessageMetaData>();
         for (MailboxMessage m : uids) {
             data.put(m.getUid(), new SimpleMessageMetaData(m));
         }

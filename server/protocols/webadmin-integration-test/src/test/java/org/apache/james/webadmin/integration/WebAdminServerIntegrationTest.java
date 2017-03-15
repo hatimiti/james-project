@@ -27,11 +27,12 @@ import static org.apache.james.webadmin.Constants.SEPARATOR;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 
-import org.apache.james.CassandraJamesServerMain;
+import org.apache.james.CassandraJmapTestRule;
 import org.apache.james.GuiceJamesServer;
-import org.apache.james.backends.cassandra.EmbeddedCassandra;
-import org.apache.james.mailbox.elasticsearch.EmbeddedElasticSearch;
-import org.apache.james.modules.CassandraJmapServerModule;
+import org.apache.james.modules.MailboxProbeImpl;
+import org.apache.james.probe.DataProbe;
+import org.apache.james.utils.DataProbeImpl;
+import org.apache.james.utils.WebAdminGuiceProbe;
 import org.apache.james.webadmin.routes.DomainRoutes;
 import org.apache.james.webadmin.routes.UserMailboxesRoutes;
 import org.apache.james.webadmin.routes.UserRoutes;
@@ -39,8 +40,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.RuleChain;
-import org.junit.rules.TemporaryFolder;
 
 import com.google.common.base.Charsets;
 import com.jayway.restassured.RestAssured;
@@ -56,33 +55,24 @@ public class WebAdminServerIntegrationTest {
     public static final String MAILBOX = "mailbox";
     public static final String SPECIFIC_MAILBOX = SPECIFIC_USER + SEPARATOR + UserMailboxesRoutes.MAILBOXES + SEPARATOR + MAILBOX;
 
-    private TemporaryFolder temporaryFolder = new TemporaryFolder();
-    private EmbeddedElasticSearch embeddedElasticSearch = new EmbeddedElasticSearch(temporaryFolder);
-    private EmbeddedCassandra cassandra = EmbeddedCassandra.createStartServer();
-
     @Rule
-    public RuleChain chain = RuleChain
-        .outerRule(temporaryFolder)
-        .around(embeddedElasticSearch);
+    public CassandraJmapTestRule cassandraJmapTestRule = CassandraJmapTestRule.defaultTestRule();
 
     private GuiceJamesServer guiceJamesServer;
+    private DataProbe dataProbe;
 
     @Before
     public void setUp() throws Exception {
-        guiceJamesServer = new GuiceJamesServer()
-            .combineWith(CassandraJamesServerMain.cassandraServerModule)
-            .overrideWith(new CassandraJmapServerModule(temporaryFolder, embeddedElasticSearch, cassandra),
-                new WebAdminConfigurationModule());
+        guiceJamesServer = cassandraJmapTestRule.jmapServer()
+                .overrideWith(new WebAdminConfigurationModule());
         guiceJamesServer.start();
+        dataProbe = guiceJamesServer.getProbe(DataProbeImpl.class);
 
         RestAssured.requestSpecification = new RequestSpecBuilder()
         		.setContentType(ContentType.JSON)
         		.setAccept(ContentType.JSON)
         		.setConfig(newConfig().encoderConfig(encoderConfig().defaultContentCharset(Charsets.UTF_8)))
-        		.setPort(guiceJamesServer
-        					.getWebadminPort()
-				            .orElseThrow(() -> new RuntimeException("Unable to locate Web Admin port"))
-				            .toInt())
+        		.setPort(guiceJamesServer.getProbe(WebAdminGuiceProbe.class).getWebAdminPort())
         		.build();
     }
 
@@ -98,24 +88,24 @@ public class WebAdminServerIntegrationTest {
         .then()
             .statusCode(204);
 
-        assertThat(guiceJamesServer.serverProbe().listDomains()).contains(DOMAIN);
+        assertThat(dataProbe.listDomains()).contains(DOMAIN);
     }
 
     @Test
     public void deleteShouldRemoveTheGivenDomain() throws Exception {
-        guiceJamesServer.serverProbe().addDomain(DOMAIN);
+        dataProbe.addDomain(DOMAIN);
 
         when()
             .delete(SPECIFIC_DOMAIN)
         .then()
             .statusCode(204);
 
-        assertThat(guiceJamesServer.serverProbe().listDomains()).doesNotContain(DOMAIN);
+        assertThat(dataProbe.listDomains()).doesNotContain(DOMAIN);
     }
 
     @Test
     public void postShouldAddTheUser() throws Exception {
-        guiceJamesServer.serverProbe().addDomain(DOMAIN);
+        dataProbe.addDomain(DOMAIN);
 
         given()
             .body("{\"password\":\"password\"}")
@@ -124,13 +114,13 @@ public class WebAdminServerIntegrationTest {
         .then()
             .statusCode(204);
 
-        assertThat(guiceJamesServer.serverProbe().listUsers()).contains(USERNAME);
+        assertThat(dataProbe.listUsers()).contains(USERNAME);
     }
 
     @Test
     public void deleteShouldRemoveTheUser() throws Exception {
-        guiceJamesServer.serverProbe().addDomain(DOMAIN);
-        guiceJamesServer.serverProbe().addUser(USERNAME, "anyPassword");
+        dataProbe.addDomain(DOMAIN);
+        dataProbe.addUser(USERNAME, "anyPassword");
 
         given()
             .body("{\"username\":\"" + USERNAME + "\",\"password\":\"password\"}")
@@ -139,13 +129,13 @@ public class WebAdminServerIntegrationTest {
         .then()
             .statusCode(204);
 
-        assertThat(guiceJamesServer.serverProbe().listUsers()).doesNotContain(USERNAME);
+        assertThat(dataProbe.listUsers()).doesNotContain(USERNAME);
     }
 
     @Test
     public void getUsersShouldDisplayUsers() throws Exception {
-        guiceJamesServer.serverProbe().addDomain(DOMAIN);
-        guiceJamesServer.serverProbe().addUser(USERNAME, "anyPassword");
+        dataProbe.addDomain(DOMAIN);
+        dataProbe.addUser(USERNAME, "anyPassword");
 
         when()
             .get(UserRoutes.USERS)
@@ -156,31 +146,29 @@ public class WebAdminServerIntegrationTest {
 
     @Test
     public void putMailboxShouldAddAMailbox() throws Exception {
-        guiceJamesServer.serverProbe().addDomain(DOMAIN);
-        guiceJamesServer.serverProbe().addUser(USERNAME, "anyPassword");
+        dataProbe.addDomain(DOMAIN);
+        dataProbe.addUser(USERNAME, "anyPassword");
 
         when()
             .put(SPECIFIC_MAILBOX)
         .then()
             .statusCode(204);
 
-        assertThat(guiceJamesServer.serverProbe().listUserMailboxes(USERNAME)).containsExactly(MAILBOX);
+        assertThat(guiceJamesServer.getProbe(MailboxProbeImpl.class).listUserMailboxes(USERNAME)).containsExactly(MAILBOX);
     }
-
-
 
     @Test
     public void deleteMailboxShouldRemoveAMailbox() throws Exception {
-        guiceJamesServer.serverProbe().addDomain(DOMAIN);
-        guiceJamesServer.serverProbe().addUser(USERNAME, "anyPassword");
-        guiceJamesServer.serverProbe().createMailbox("#private", USERNAME, MAILBOX);
+        dataProbe.addDomain(DOMAIN);
+        dataProbe.addUser(USERNAME, "anyPassword");
+        guiceJamesServer.getProbe(MailboxProbeImpl.class).createMailbox("#private", USERNAME, MAILBOX);
 
         when()
             .delete(SPECIFIC_MAILBOX)
         .then()
             .statusCode(204);
 
-        assertThat(guiceJamesServer.serverProbe().listUserMailboxes(USERNAME)).isEmpty();
+        assertThat(guiceJamesServer.getProbe(MailboxProbeImpl.class).listUserMailboxes(USERNAME)).isEmpty();
     }
 
 }

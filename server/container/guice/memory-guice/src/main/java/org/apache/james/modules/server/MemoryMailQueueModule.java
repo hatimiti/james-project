@@ -21,7 +21,6 @@ package org.apache.james.modules.server;
 
 import org.apache.james.jmap.send.PostDequeueDecoratorFactory;
 import org.apache.james.queue.api.MailQueueFactory;
-import org.apache.james.queue.api.MailQueueItemDecoratorFactory;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Scopes;
@@ -34,6 +33,5 @@ public class MemoryMailQueueModule extends AbstractModule {
         bind(PostDequeueDecoratorFactory.class).in(Scopes.SINGLETON);
 
         bind(MailQueueFactory.class).to(MemoryMailQueueFactory.class);
-        bind(MailQueueItemDecoratorFactory.class).to(PostDequeueDecoratorFactory.class);
     }
 }

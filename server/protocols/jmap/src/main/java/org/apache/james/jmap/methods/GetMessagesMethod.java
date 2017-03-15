@@ -19,12 +19,9 @@
 
 package org.apache.james.jmap.methods;
 
-import java.util.Iterator;
-import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import javax.inject.Inject;
 
@@ -33,29 +30,26 @@ import org.apache.james.jmap.json.FieldNamePropertyFilter;
 import org.apache.james.jmap.model.ClientId;
 import org.apache.james.jmap.model.GetMessagesRequest;
 import org.apache.james.jmap.model.GetMessagesResponse;
-import org.apache.james.jmap.model.Message;
 import org.apache.james.jmap.model.MessageFactory;
-import org.apache.james.jmap.model.MessageId;
+import org.apache.james.jmap.model.MessageFactory.MetaDataWithContent;
 import org.apache.james.jmap.model.MessageProperties;
 import org.apache.james.jmap.model.MessageProperties.HeaderProperty;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageIdManager;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.model.MailboxPath;
-import org.apache.james.mailbox.model.MessageRange;
-import org.apache.james.mailbox.store.mail.MailboxMapperFactory;
-import org.apache.james.mailbox.store.mail.MessageMapper;
-import org.apache.james.mailbox.store.mail.MessageMapperFactory;
-import org.apache.james.mailbox.store.mail.model.Mailbox;
-import org.apache.james.mailbox.store.mail.model.MailboxMessage;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
-import org.javatuples.Pair;
+import org.apache.james.mailbox.model.FetchGroupImpl;
+import org.apache.james.mailbox.model.MessageResult;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
 
 import com.fasterxml.jackson.databind.ser.PropertyFilter;
 import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider;
 import com.github.fge.lambdas.Throwing;
+import com.github.fge.lambdas.functions.ThrowingFunction;
 import com.github.steveash.guavate.Guavate;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableSet;
 
 public class GetMessagesMethod implements Method {
@@ -63,18 +57,18 @@ public class GetMessagesMethod implements Method {
     public static final String HEADERS_FILTER = "headersFilter";
     private static final Method.Request.Name METHOD_NAME = Method.Request.name("getMessages");
     private static final Method.Response.Name RESPONSE_NAME = Method.Response.name("messages");
-    private final MessageMapperFactory messageMapperFactory;
-    private final MailboxMapperFactory mailboxMapperFactory;
     private final MessageFactory messageFactory;
+    private final MessageIdManager messageIdManager;
+    private final MetricFactory metricFactory;
 
     @Inject
     @VisibleForTesting GetMessagesMethod(
-            MessageMapperFactory messageMapperFactory,
-            MailboxMapperFactory mailboxMapperFactory,
-            MessageFactory messageFactory) {
-        this.messageMapperFactory = messageMapperFactory;
-        this.mailboxMapperFactory = mailboxMapperFactory;
+            MessageFactory messageFactory,
+            MessageIdManager messageIdManager,
+            MetricFactory metricFactory) {
         this.messageFactory = messageFactory;
+        this.messageIdManager = messageIdManager;
+        this.metricFactory = metricFactory;
     }
     
     @Override
@@ -92,14 +86,20 @@ public class GetMessagesMethod implements Method {
         Preconditions.checkNotNull(request);
         Preconditions.checkNotNull(mailboxSession);
         Preconditions.checkArgument(request instanceof GetMessagesRequest);
+
         GetMessagesRequest getMessagesRequest = (GetMessagesRequest) request;
         MessageProperties outputProperties = getMessagesRequest.getProperties().toOutputProperties();
-        return Stream.of(JmapResponse.builder().clientId(clientId)
+        TimeMetric timeMetric = metricFactory.timer(JMAP_PREFIX + METHOD_NAME.getName());
+        try {
+            return Stream.of(JmapResponse.builder().clientId(clientId)
                             .response(getMessagesResponse(mailboxSession, getMessagesRequest))
                             .responseName(RESPONSE_NAME)
                             .properties(outputProperties.getOptionalMessageProperties())
                             .filterProvider(buildOptionalHeadersFilteringFilterProvider(outputProperties))
                             .build());
+        } finally {
+            timeMetric.stopAndPublish();
+        }
     }
 
     private Optional<SimpleFilterProvider> buildOptionalHeadersFilteringFilterProvider(MessageProperties properties) {
@@ -114,107 +114,42 @@ public class GetMessagesMethod implements Method {
     }
 
     private GetMessagesResponse getMessagesResponse(MailboxSession mailboxSession, GetMessagesRequest getMessagesRequest) {
-        getMessagesRequest.getAccountId().ifPresent(GetMessagesMethod::notImplemented);
-        
-        Function<MessageId, Stream<CompletedMailboxMessage>> loadMessages = loadMessage(mailboxSession);
-        Function<CompletedMailboxMessage, Message> convertToJmapMessage = toJmapMessage(mailboxSession);
-        
-        List<Message> result = getMessagesRequest.getIds().stream()
-            .flatMap(loadMessages)
-            .map(convertToJmapMessage)
-            .collect(Guavate.toImmutableList());
+        getMessagesRequest.getAccountId().ifPresent((input) -> notImplemented());
 
-        return GetMessagesResponse.builder().messages(result).expectedMessageIds(getMessagesRequest.getIds()).build();
+        try {
+            return GetMessagesResponse.builder()
+                .messages(
+                    messageIdManager.getMessages(getMessagesRequest.getIds(), FetchGroupImpl.FULL_CONTENT, mailboxSession)
+                        .stream()
+                        .collect(Guavate.toImmutableListMultimap(MessageResult::getMessageId))
+                        .asMap()
+                        .values()
+                        .stream()
+                        .filter(collection -> !collection.isEmpty())
+                        .map(Throwing.function(toMetaDataWithContent()).sneakyThrow())
+                        .map(Throwing.function(messageFactory::fromMetaDataWithContent).sneakyThrow())
+                        .collect(Guavate.toImmutableList()))
+                .expectedMessageIds(getMessagesRequest.getIds())
+                .build();
+        } catch (MailboxException e) {
+            throw Throwables.propagate(e);
+        }
     }
 
-    private static void notImplemented(String input) {
+    private ThrowingFunction<Collection<MessageResult>, MetaDataWithContent> toMetaDataWithContent() {
+        return messageResults -> {
+            MessageResult firstMessageResult = messageResults.iterator().next();
+            return MetaDataWithContent.builderFromMessageResult(firstMessageResult)
+                .messageId(firstMessageResult.getMessageId())
+                .mailboxIds(messageResults.stream()
+                    .map(MessageResult::getMailboxId)
+                    .distinct()
+                    .collect(Guavate.toImmutableList()))
+                .build();
+        };
+    }
+
+    private static void notImplemented() {
         throw new NotImplementedException();
-    }
-
-    
-    private Function<CompletedMailboxMessage, Message> toJmapMessage(MailboxSession mailboxSession) {
-        return (completedMailboxMessage) -> messageFactory.fromMailboxMessage(
-                completedMailboxMessage.mailboxMessage, 
-                completedMailboxMessage.attachments, 
-                uid -> new MessageId(mailboxSession.getUser(), completedMailboxMessage.mailboxPath , uid));
-    }
-
-    private Function<MessageId, Stream<CompletedMailboxMessage>> 
-                loadMessage(MailboxSession mailboxSession) {
-
-        return Throwing
-                .function((MessageId messageId) -> {
-                     MailboxPath mailboxPath = messageId.getMailboxPath();
-                     MessageMapper messageMapper = messageMapperFactory.getMessageMapper(mailboxSession);
-                     Mailbox mailbox = mailboxMapperFactory.getMailboxMapper(mailboxSession).findMailboxByPath(mailboxPath);
-                     return Pair.with(
-                             messageMapper.findInMailbox(mailbox, MessageRange.one(messageId.getUid()), MessageMapper.FetchType.Full, 1),
-                             mailboxPath
-                             );
-                })
-                .andThen(Throwing.function((pair) -> retrieveCompleteMailboxMessages(pair, mailboxSession)));
-    }
-    
-    private Stream<CompletedMailboxMessage> retrieveCompleteMailboxMessages(Pair<Iterator<MailboxMessage>, MailboxPath> value, MailboxSession mailboxSession) throws MailboxException {
-        Iterable<MailboxMessage> iterable = () -> value.getValue0();
-        Stream<MailboxMessage> targetStream = StreamSupport.stream(iterable.spliterator(), false);
-
-        MailboxPath mailboxPath = value.getValue1();
-        return targetStream
-                .map(message -> CompletedMailboxMessage.builder().mailboxMessage(message).attachments(message.getAttachments()))
-                .map(builder -> builder.mailboxPath(mailboxPath))
-                .map(builder -> builder.build()); 
-    }
-
-    private static class CompletedMailboxMessage {
-
-        public static Builder builder() {
-            return new Builder();
-        }
-
-        public static class Builder {
-
-            private MailboxMessage mailboxMessage;
-            private List<MessageAttachment> attachments;
-            private MailboxPath mailboxPath;
-
-            private Builder() {
-            }
-
-            public Builder mailboxMessage(MailboxMessage mailboxMessage) {
-                Preconditions.checkArgument(mailboxMessage != null);
-                this.mailboxMessage = mailboxMessage;
-                return this;
-            }
-
-            public Builder attachments(List<MessageAttachment> attachments) {
-                Preconditions.checkArgument(attachments != null);
-                this.attachments = attachments;
-                return this;
-            }
-
-            public Builder mailboxPath(MailboxPath mailboxPath) {
-                Preconditions.checkArgument(mailboxPath != null);
-                this.mailboxPath = mailboxPath;
-                return this;
-            }
-
-            public CompletedMailboxMessage build() {
-                Preconditions.checkState(mailboxMessage != null);
-                Preconditions.checkState(attachments != null);
-                Preconditions.checkState(mailboxPath != null);
-                return new CompletedMailboxMessage(mailboxMessage, attachments, mailboxPath);
-            }
-        }
-
-        private final MailboxMessage mailboxMessage;
-        private final List<MessageAttachment> attachments;
-        private final MailboxPath mailboxPath;
-
-        public CompletedMailboxMessage(MailboxMessage mailboxMessage, List<MessageAttachment> attachments, MailboxPath mailboxPath) {
-            this.mailboxMessage = mailboxMessage;
-            this.attachments = attachments;
-            this.mailboxPath = mailboxPath;
-        }
     }
 }

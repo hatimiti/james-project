@@ -27,7 +27,6 @@ import java.util.Date;
 
 import javax.mail.Flags.Flag;
 
-import org.apache.commons.lang.NotImplementedException;
 import org.apache.james.jmap.model.Filter;
 import org.apache.james.jmap.model.FilterCondition;
 import org.apache.james.jmap.model.FilterOperator;
@@ -92,6 +91,30 @@ public class FilterToSearchQueryTest {
         SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
                 .cc(cc)
                 .build());
+
+        assertThat(searchQuery).isEqualTo(expectedSearchQuery);
+    }
+
+    @Test
+    public void filterConditionShouldMapWhenHasAttachment() {
+        SearchQuery expectedSearchQuery = new SearchQuery();
+        expectedSearchQuery.andCriteria(SearchQuery.hasAttachment());
+
+        SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
+            .hasAttachment(true)
+            .build());
+
+        assertThat(searchQuery).isEqualTo(expectedSearchQuery);
+    }
+
+    @Test
+    public void filterConditionShouldMapWhenHasNoAttachment() {
+        SearchQuery expectedSearchQuery = new SearchQuery();
+        expectedSearchQuery.andCriteria(SearchQuery.hasNoAttachment());
+
+        SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
+            .hasAttachment(false)
+            .build());
 
         assertThat(searchQuery).isEqualTo(expectedSearchQuery);
     }
@@ -181,14 +204,6 @@ public class FilterToSearchQueryTest {
     }
 
     @Test
-    public void filterConditionShouldThrowWhenHasAttachment() {
-        assertThatThrownBy(() -> new FilterToSearchQuery().convert(FilterCondition.builder()
-                .hasAttachment(true)
-                .build()))
-            .isInstanceOf(NotImplementedException.class);
-    }
-
-    @Test
     public void filterConditionShouldMapWhenIsAnswered() {
         SearchQuery expectedSearchQuery = new SearchQuery();
         expectedSearchQuery.andCriteria(SearchQuery.flagIsSet(Flag.ANSWERED));
@@ -232,6 +247,55 @@ public class FilterToSearchQueryTest {
         SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
                 .isUnread(true)
                 .build());
+
+        assertThat(searchQuery).isEqualTo(expectedSearchQuery);
+    }
+
+
+    @Test
+    public void filterConditionShouldMapWhenIsNotAnswered() {
+        SearchQuery expectedSearchQuery = new SearchQuery();
+        expectedSearchQuery.andCriteria(SearchQuery.flagIsUnSet(Flag.ANSWERED));
+
+        SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
+            .isAnswered(false)
+            .build());
+
+        assertThat(searchQuery).isEqualTo(expectedSearchQuery);
+    }
+
+    @Test
+    public void filterConditionShouldMapWhenIsNotDraft() {
+        SearchQuery expectedSearchQuery = new SearchQuery();
+        expectedSearchQuery.andCriteria(SearchQuery.flagIsUnSet(Flag.DRAFT));
+
+        SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
+            .isDraft(false)
+            .build());
+
+        assertThat(searchQuery).isEqualTo(expectedSearchQuery);
+    }
+
+    @Test
+    public void filterConditionShouldMapWhenIsNotFlagged() {
+        SearchQuery expectedSearchQuery = new SearchQuery();
+        expectedSearchQuery.andCriteria(SearchQuery.flagIsUnSet(Flag.FLAGGED));
+
+        SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
+            .isFlagged(false)
+            .build());
+
+        assertThat(searchQuery).isEqualTo(expectedSearchQuery);
+    }
+
+    @Test
+    public void filterConditionShouldMapWhenIsRead() {
+        SearchQuery expectedSearchQuery = new SearchQuery();
+        expectedSearchQuery.andCriteria(SearchQuery.flagIsSet(Flag.SEEN));
+
+        SearchQuery searchQuery = new FilterToSearchQuery().convert(FilterCondition.builder()
+            .isUnread(false)
+            .build());
 
         assertThat(searchQuery).isEqualTo(expectedSearchQuery);
     }

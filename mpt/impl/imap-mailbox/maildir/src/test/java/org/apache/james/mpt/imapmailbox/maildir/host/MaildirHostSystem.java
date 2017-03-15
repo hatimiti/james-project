@@ -34,12 +34,13 @@ import org.apache.james.mailbox.maildir.MaildirMailboxSessionMapperFactory;
 import org.apache.james.mailbox.maildir.MaildirStore;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.JVMMailboxPathLocker;
-import org.apache.james.mailbox.store.MockAuthenticator;
 import org.apache.james.mailbox.store.StoreMailboxManager;
 import org.apache.james.mailbox.store.StoreSubscriptionManager;
+import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.apache.james.mailbox.store.quota.DefaultQuotaRootResolver;
 import org.apache.james.mailbox.store.quota.NoQuotaManager;
+import org.apache.james.metrics.logger.DefaultMetricFactory;
 import org.apache.james.mpt.api.ImapFeatures;
 import org.apache.james.mpt.api.ImapFeatures.Feature;
 import org.apache.james.mpt.host.JamesImapHostSystem;
@@ -52,25 +53,23 @@ public class MaildirHostSystem extends JamesImapHostSystem {
     private static final ImapFeatures SUPPORTED_FEATURES = ImapFeatures.of();
     
     private final StoreMailboxManager mailboxManager;
-    private final MockAuthenticator userManager;
-    private final MaildirMailboxSessionMapperFactory mailboxSessionMapperFactory;
-    
+
     public static JamesImapHostSystem build() throws Exception {
         return new MaildirHostSystem();
     }
     
     public MaildirHostSystem() throws MailboxException {
-        userManager = new MockAuthenticator();
         JVMMailboxPathLocker locker = new JVMMailboxPathLocker();
         MaildirStore store = new MaildirStore(MAILDIR_HOME + "/%user", locker);
-        mailboxSessionMapperFactory = new MaildirMailboxSessionMapperFactory(store);
+        MaildirMailboxSessionMapperFactory mailboxSessionMapperFactory = new MaildirMailboxSessionMapperFactory(store);
         StoreSubscriptionManager sm = new StoreSubscriptionManager(mailboxSessionMapperFactory);
         
         MailboxACLResolver aclResolver = new UnionMailboxACLResolver();
         GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
         MessageParser messageParser = new MessageParser();
 
-        mailboxManager = new StoreMailboxManager(mailboxSessionMapperFactory, userManager, locker, aclResolver, groupMembershipResolver, messageParser);
+        mailboxManager = new StoreMailboxManager(mailboxSessionMapperFactory, authenticator, authorizator, locker, aclResolver,
+                groupMembershipResolver, messageParser, new DefaultMessageId.Factory());
         mailboxManager.init();
 
         final ImapProcessor defaultImapProcessorFactory = 
@@ -78,17 +77,14 @@ public class MaildirHostSystem extends JamesImapHostSystem {
                         mailboxManager, 
                         sm, 
                         new NoQuotaManager(), 
-                        new DefaultQuotaRootResolver(mailboxSessionMapperFactory));
+                        new DefaultQuotaRootResolver(mailboxSessionMapperFactory),
+                        new DefaultMetricFactory());
         configure(new DefaultImapDecoderFactory().buildImapDecoder(),
                 new DefaultImapEncoderFactory().buildImapEncoder(),
                 defaultImapProcessorFactory);
         (new File(MAILDIR_HOME)).mkdirs();
     }
-    
-    public boolean addUser(String user, String password) throws Exception {
-        userManager.addUser(user, password);
-        return true;
-    }
+
 
     @Override
     public void resetData() throws Exception {

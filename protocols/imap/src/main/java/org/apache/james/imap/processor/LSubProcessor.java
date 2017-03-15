@@ -29,6 +29,7 @@ import org.apache.james.imap.api.display.HumanReadableText;
 import org.apache.james.imap.api.message.response.StatusResponseFactory;
 import org.apache.james.imap.api.process.ImapProcessor;
 import org.apache.james.imap.api.process.ImapSession;
+import org.apache.james.imap.main.PathConverter;
 import org.apache.james.imap.message.request.LsubRequest;
 import org.apache.james.imap.message.response.LSubResponse;
 import org.apache.james.mailbox.MailboxManager;
@@ -39,11 +40,13 @@ import org.apache.james.mailbox.exception.SubscriptionException;
 import org.apache.james.mailbox.model.MailboxConstants;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.MailboxQuery;
+import org.apache.james.metrics.api.MetricFactory;
 
 public class LSubProcessor extends AbstractSubscriptionProcessor<LsubRequest> {
 
-    public LSubProcessor(ImapProcessor next, MailboxManager mailboxManager, SubscriptionManager subscriptionManager, StatusResponseFactory factory) {
-        super(LsubRequest.class, next, mailboxManager, subscriptionManager, factory);
+    public LSubProcessor(ImapProcessor next, MailboxManager mailboxManager, SubscriptionManager subscriptionManager, StatusResponseFactory factory,
+            MetricFactory metricFactory) {
+        super(LsubRequest.class, next, mailboxManager, subscriptionManager, factory, metricFactory);
     }
 
     private void listSubscriptions(ImapSession session, Responder responder, String referenceName, String mailboxName) throws SubscriptionException, MailboxException {
@@ -62,7 +65,7 @@ public class LSubProcessor extends AbstractSubscriptionProcessor<LsubRequest> {
         if (isRelative) {
             basePath = new MailboxPath(MailboxConstants.USER_NAMESPACE, mailboxSession.getUser().getUserName(), CharsetUtil.decodeModifiedUTF7(finalReferencename));
         } else {
-            basePath = buildFullPath(session, CharsetUtil.decodeModifiedUTF7(finalReferencename));
+            basePath = PathConverter.forSession(session).buildFullPath(CharsetUtil.decodeModifiedUTF7(finalReferencename));
         }
 
         final MailboxQuery expression = new MailboxQuery(basePath, CharsetUtil.decodeModifiedUTF7(mailboxName), mailboxSession.getPathDelimiter());

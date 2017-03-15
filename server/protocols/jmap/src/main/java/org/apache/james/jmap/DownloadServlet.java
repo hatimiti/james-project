@@ -35,44 +35,54 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
 import org.apache.james.jmap.api.SimpleTokenFactory;
 import org.apache.james.jmap.utils.DownloadPath;
+import org.apache.james.mailbox.AttachmentManager;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.exception.AttachmentNotFoundException;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
-import org.apache.james.mailbox.store.mail.AttachmentMapper;
-import org.apache.james.mailbox.store.mail.model.Attachment;
-import org.apache.james.mailbox.store.mail.model.AttachmentId;
+import org.apache.james.mailbox.model.Attachment;
+import org.apache.james.mailbox.model.AttachmentId;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
+import org.apache.james.mime4j.codec.EncoderUtil;
+import org.apache.james.mime4j.codec.EncoderUtil.Usage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.CharMatcher;
 
 public class DownloadServlet extends HttpServlet {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadServlet.class);
     private static final String TEXT_PLAIN_CONTENT_TYPE = "text/plain";
 
-    private final MailboxSessionMapperFactory mailboxSessionMapperFactory;
+    private final AttachmentManager attachmentManager;
     private final SimpleTokenFactory simpleTokenFactory;
+    private final MetricFactory metricFactory;
 
     @Inject
-    @VisibleForTesting DownloadServlet(MailboxSessionMapperFactory mailboxSessionMapperFactory, SimpleTokenFactory simpleTokenFactory) {
-        this.mailboxSessionMapperFactory = mailboxSessionMapperFactory;
+    @VisibleForTesting DownloadServlet(AttachmentManager attachmentManager, SimpleTokenFactory simpleTokenFactory, MetricFactory metricFactory) {
+        this.attachmentManager = attachmentManager;
         this.simpleTokenFactory = simpleTokenFactory;
+        this.metricFactory = metricFactory;
     }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException {
+        TimeMetric timeMetric = metricFactory.timer("JMAP-download-post");
         String pathInfo = req.getPathInfo();
         try {
             respondAttachmentAccessToken(getMailboxSession(req), DownloadPath.from(pathInfo), resp);
         } catch (IllegalArgumentException e) {
             LOGGER.error(String.format("Error while generating attachment access token '%s'", pathInfo), e);
             resp.setStatus(SC_BAD_REQUEST);
+        } finally {
+            timeMetric.stopAndPublish();
         }
     }
 
     private void respondAttachmentAccessToken(MailboxSession mailboxSession, DownloadPath downloadPath, HttpServletResponse resp) {
+        TimeMetric timeMetric = metricFactory.timer("JMAP-download-get");
         String blobId = downloadPath.getBlobId();
         try {
             if (! attachmentExists(mailboxSession, blobId)) {
@@ -85,13 +95,14 @@ public class DownloadServlet extends HttpServlet {
         } catch (MailboxException | IOException e) {
             LOGGER.error("Error while asking attachment access token", e);
             resp.setStatus(SC_INTERNAL_SERVER_ERROR);
+        } finally {
+            timeMetric.stopAndPublish();
         }
     }
 
     private boolean attachmentExists(MailboxSession mailboxSession, String blobId) throws MailboxException {
-        AttachmentMapper attachmentMapper = mailboxSessionMapperFactory.createAttachmentMapper(mailboxSession);
         try {
-            attachmentMapper.getAttachment(AttachmentId.from(blobId));
+            attachmentManager.getAttachment(AttachmentId.from(blobId), mailboxSession);
             return true;
         } catch (AttachmentNotFoundException e) {
             return false;
@@ -114,10 +125,10 @@ public class DownloadServlet extends HttpServlet {
         try {
             addContentDispositionHeader(downloadPath.getName(), resp);
 
-            AttachmentMapper attachmentMapper = mailboxSessionMapperFactory.createAttachmentMapper(mailboxSession);
-            Attachment attachment = attachmentMapper.getAttachment(AttachmentId.from(blobId));
+            Attachment attachment = attachmentManager.getAttachment(AttachmentId.from(blobId), mailboxSession);
             IOUtils.copy(attachment.getStream(), resp.getOutputStream());
 
+            resp.setHeader("Content-Length", String.valueOf(attachment.getSize()));
             resp.setStatus(SC_OK);
         } catch (AttachmentNotFoundException e) {
             LOGGER.info(String.format("Attachment '%s' not found", blobId), e);
@@ -129,10 +140,17 @@ public class DownloadServlet extends HttpServlet {
     }
 
     private void addContentDispositionHeader(Optional<String> optionalName, HttpServletResponse resp) {
-        optionalName.ifPresent(name -> resp.addHeader("Content-Disposition", "attachment; filename=\"" + name + "\""));
+        optionalName.ifPresent(name -> addContentDispositionHeaderRegardingEncoding(name, resp));
     }
 
-    
+    private void addContentDispositionHeaderRegardingEncoding(String name, HttpServletResponse resp) {
+        if (CharMatcher.ASCII.matchesAllOf(name)) {
+            resp.addHeader("Content-Disposition", "attachment; filename=\"" + name + "\"");
+        } else {
+            resp.addHeader("Content-Disposition", "attachment; filename*=\"" + EncoderUtil.encodeEncodedWord(name, Usage.TEXT_TOKEN) + "\"");
+        }
+    }
+
     private MailboxSession getMailboxSession(HttpServletRequest req) {
         return (MailboxSession) req.getAttribute(AuthenticationFilter.MAILBOX_SESSION);
     }

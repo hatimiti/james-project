@@ -29,10 +29,12 @@ import java.util.stream.Collectors;
 
 import org.apache.james.jmap.model.CreationMessage;
 import org.apache.james.jmap.model.CreationMessage.DraftEmailer;
+import org.apache.james.mailbox.model.MessageAttachment;
 import org.apache.james.jmap.model.CreationMessageId;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
 import org.apache.james.mime4j.Charsets;
 import org.apache.james.mime4j.codec.DecodeMonitor;
+import org.apache.james.mime4j.codec.EncoderUtil;
+import org.apache.james.mime4j.codec.EncoderUtil.Usage;
 import org.apache.james.mime4j.dom.FieldParser;
 import org.apache.james.mime4j.dom.Message;
 import org.apache.james.mime4j.dom.Multipart;
@@ -75,6 +77,8 @@ public class MIMEMessageConverter {
     private static final String ALTERNATIVE_SUB_TYPE = "alternative";
     private static final String MIXED_SUB_TYPE = "mixed";
     private static final String FIELD_PARAMETERS_SEPARATOR = ";";
+    private static final String QUOTED_PRINTABLE = "quoted-printable";
+    private static final String BASE64 = "base64";
 
     private final BasicBodyFactory bodyFactory;
 
@@ -103,7 +107,8 @@ public class MIMEMessageConverter {
         if (isMultipart(creationMessageEntry.getValue(), messageAttachments)) {
             messageBuilder.setBody(createMultipart(creationMessageEntry.getValue(), messageAttachments));
         } else {
-            messageBuilder.setBody(createTextBody(creationMessageEntry.getValue()));
+            messageBuilder.setBody(createTextBody(creationMessageEntry.getValue()))
+                .setContentTransferEncoding(QUOTED_PRINTABLE);
         }
         buildMimeHeaders(messageBuilder, creationMessageEntry.getCreationId(), creationMessageEntry.getValue(), messageAttachments);
         return messageBuilder.build();
@@ -209,6 +214,7 @@ public class MIMEMessageConverter {
                 .use(bodyFactory)
                 .setBody(textBody.get(), Charsets.UTF_8)
                 .setContentType(PLAIN_TEXT_MEDIA_TYPE, UTF_8_CHARSET)
+                .setContentTransferEncoding(QUOTED_PRINTABLE)
                 .build());
         }
     }
@@ -219,6 +225,7 @@ public class MIMEMessageConverter {
                 .use(bodyFactory)
                 .setBody(htmlBody.get(), Charsets.UTF_8)
                 .setContentType(HTML_MEDIA_TYPE, UTF_8_CHARSET)
+                .setContentTransferEncoding(QUOTED_PRINTABLE)
                 .build());
         }
     }
@@ -240,7 +247,7 @@ public class MIMEMessageConverter {
             .setBody(new BasicBodyFactory().binaryBody(ByteStreams.toByteArray(att.getAttachment().getStream())))
             .setField(contentTypeField(att))
             .setField(contentDispositionField(att.isInline()))
-            .setContentTransferEncoding("base64");
+            .setContentTransferEncoding(BASE64);
         contentId(builder, att);
         return builder.build();
     }
@@ -254,13 +261,17 @@ public class MIMEMessageConverter {
     private ContentTypeField contentTypeField(MessageAttachment att) {
         Builder<String, String> parameters = ImmutableMap.<String, String> builder();
         if (att.getName().isPresent()) {
-            parameters.put("name", att.getName().get());
+            parameters.put("name", encode(att.getName().get()));
         }
         String type = att.getAttachment().getType();
         if (type.contains(FIELD_PARAMETERS_SEPARATOR)) {
             return Fields.contentType(contentTypeWithoutParameters(type), parameters.build());
         }
         return Fields.contentType(type, parameters.build());
+    }
+
+    private String encode(String name) {
+        return EncoderUtil.encodeEncodedWord(name, Usage.TEXT_TOKEN);
     }
 
     private String contentTypeWithoutParameters(String type) {

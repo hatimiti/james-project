@@ -27,15 +27,21 @@ import org.apache.james.backends.cassandra.init.CassandraModuleComposite;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.cassandra.CassandraMailboxManager;
 import org.apache.james.mailbox.cassandra.CassandraMailboxSessionMapperFactory;
+import org.apache.james.mailbox.cassandra.CassandraMessageId;
 import org.apache.james.mailbox.cassandra.modules.CassandraAclModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraApplicableFlagsModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraAttachmentModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraDeletedMessageModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraFirstUnseenModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraMailboxCounterModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraMailboxModule;
+import org.apache.james.mailbox.cassandra.modules.CassandraMailboxRecentsModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraMessageModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraModSeqModule;
 import org.apache.james.mailbox.cassandra.modules.CassandraUidModule;
 import org.apache.james.mailbox.store.AbstractMailboxManagerAttachmentTest;
 import org.apache.james.mailbox.store.Authenticator;
+import org.apache.james.mailbox.store.Authorizator;
 import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
 import org.apache.james.mailbox.store.NoMailboxPathLocker;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
@@ -46,27 +52,48 @@ public class CassandraMailboxManagerAttachmentTest extends AbstractMailboxManage
             new CassandraMailboxModule(),
             new CassandraMessageModule(),
             new CassandraMailboxCounterModule(),
+            new CassandraMailboxRecentsModule(),
+            new CassandraFirstUnseenModule(),
+            new CassandraDeletedMessageModule(),
             new CassandraModSeqModule(),
             new CassandraUidModule(),
-            new CassandraAttachmentModule()));
+            new CassandraAttachmentModule(),
+            new CassandraApplicableFlagsModule()));
+    public static final int MAX_ACL_RETRY = 10;
 
     private CassandraMailboxSessionMapperFactory mailboxSessionMapperFactory;
     private CassandraMailboxManager mailboxManager;
     private CassandraMailboxManager parseFailingMailboxManager;
 
     public CassandraMailboxManagerAttachmentTest() throws Exception {
+        CassandraMessageId.Factory messageIdFactory = new CassandraMessageId.Factory();
+
+        CassandraMailboxDAO mailboxDAO = new CassandraMailboxDAO(cassandra.getConf(), cassandra.getTypesProvider(), MAX_ACL_RETRY);
+        CassandraMailboxPathDAO mailboxPathDAO = new CassandraMailboxPathDAO(cassandra.getConf(), cassandra.getTypesProvider());
+        CassandraFirstUnseenDAO firstUnseenDAO = new CassandraFirstUnseenDAO(cassandra.getConf());
+        CassandraDeletedMessageDAO deletedMessageDAO = new CassandraDeletedMessageDAO(cassandra.getConf());
         mailboxSessionMapperFactory = new CassandraMailboxSessionMapperFactory(
                 new CassandraUidProvider(cassandra.getConf()),
                 new CassandraModSeqProvider(cassandra.getConf()),
                 cassandra.getConf(),
-                cassandra.getTypesProvider());
+                new CassandraMessageDAO(cassandra.getConf(), cassandra.getTypesProvider(), messageIdFactory),
+                new CassandraMessageIdDAO(cassandra.getConf(), messageIdFactory),
+                new CassandraMessageIdToImapUidDAO(cassandra.getConf(), messageIdFactory),
+                new CassandraMailboxCounterDAO(cassandra.getConf()),
+                new CassandraMailboxRecentsDAO(cassandra.getConf()),
+                mailboxDAO,
+                mailboxPathDAO,
+                firstUnseenDAO,
+                new CassandraApplicableFlagDAO(cassandra.getConf()),
+                deletedMessageDAO);
         Authenticator noAuthenticator = null;
-        mailboxManager = new CassandraMailboxManager(mailboxSessionMapperFactory, noAuthenticator, new NoMailboxPathLocker(), new MessageParser());
+        Authorizator noAuthorizator = null;
+        mailboxManager = new CassandraMailboxManager(mailboxSessionMapperFactory, noAuthenticator, noAuthorizator, new NoMailboxPathLocker(), new MessageParser(), messageIdFactory); 
         mailboxManager.init();
         MessageParser failingMessageParser = mock(MessageParser.class);
         when(failingMessageParser.retrieveAttachments(any()))
             .thenThrow(new RuntimeException("Message parser set to fail"));
-        parseFailingMailboxManager = new CassandraMailboxManager(mailboxSessionMapperFactory, noAuthenticator, new NoMailboxPathLocker(), failingMessageParser);
+        parseFailingMailboxManager = new CassandraMailboxManager(mailboxSessionMapperFactory, noAuthenticator, noAuthorizator, new NoMailboxPathLocker(), failingMessageParser, messageIdFactory); 
         parseFailingMailboxManager.init();
     }
 

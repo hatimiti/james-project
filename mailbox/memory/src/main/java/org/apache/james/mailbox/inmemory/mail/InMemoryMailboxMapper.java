@@ -28,6 +28,7 @@ import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.MailboxNotFoundException;
 import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.apache.james.mailbox.model.MailboxACL;
+import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
@@ -75,6 +76,16 @@ public class InMemoryMailboxMapper implements MailboxMapper {
         }
     }
 
+    public synchronized Mailbox findMailboxById(MailboxId id) throws MailboxException {
+        InMemoryId mailboxId = (InMemoryId)id;
+        Mailbox result = mailboxesById.get(mailboxId);
+        if (result == null) {
+            throw new MailboxNotFoundException(mailboxId.serialize());
+        } else {
+            return result;
+        }
+    }
+
     /**
      * @see org.apache.james.mailbox.store.mail.MailboxMapper#findMailboxWithPathLike(org.apache.james.mailbox.model.MailboxPath)
      */
@@ -98,13 +109,14 @@ public class InMemoryMailboxMapper implements MailboxMapper {
     /**
      * @see org.apache.james.mailbox.store.mail.MailboxMapper#save(org.apache.james.mailbox.store.mail.model.Mailbox)
      */
-    public void save(Mailbox mailbox) throws MailboxException {
+    public MailboxId save(Mailbox mailbox) throws MailboxException {
         InMemoryId id = (InMemoryId) mailbox.getMailboxId();
         if (id == null) {
             id = InMemoryId.of(mailboxIdGenerator.incrementAndGet());
             ((SimpleMailbox) mailbox).setMailboxId(id);
         }
         mailboxesById.put(id, mailbox);
+        return mailbox.getMailboxId();
     }
 
     /**

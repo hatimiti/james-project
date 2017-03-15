@@ -23,15 +23,15 @@ import java.util.List;
 
 import org.apache.james.mailbox.exception.AttachmentNotFoundException;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.store.mail.model.Attachment;
-import org.apache.james.mailbox.store.mail.model.AttachmentId;
+import org.apache.james.mailbox.model.Attachment;
+import org.apache.james.mailbox.model.AttachmentId;
 import org.apache.james.mailbox.store.transaction.Mapper;
 
 public interface AttachmentMapper extends Mapper {
 
     Attachment getAttachment(AttachmentId attachmentId) throws AttachmentNotFoundException;
 
-    List<Attachment> getAttachments(List<AttachmentId> attachmentIds);
+    List<Attachment> getAttachments(Collection<AttachmentId> attachmentIds);
 
     void storeAttachment(Attachment attachment) throws MailboxException;
 

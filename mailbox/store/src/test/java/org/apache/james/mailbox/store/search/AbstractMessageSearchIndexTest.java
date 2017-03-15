@@ -21,17 +21,18 @@ package org.apache.james.mailbox.store.search;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.Collection;
 import java.util.Date;
-import java.util.Map;
+import java.util.List;
 
 import javax.mail.Flags;
 
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageIdManager;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.ComposedMessageId;
 import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.model.MultimailboxesSearchQuery;
 import org.apache.james.mailbox.model.SearchQuery;
 import org.apache.james.mailbox.model.SearchQuery.AddressType;
@@ -44,17 +45,35 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 public abstract class AbstractMessageSearchIndexTest {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AbstractMessageSearchIndexTest.class);
+    public static final long LIMIT = 100L;
 
     protected MessageSearchIndex messageSearchIndex;
     protected StoreMailboxManager storeMailboxManager;
+    protected MessageIdManager messageIdManager;
     private Mailbox mailbox;
     private Mailbox mailbox2;
     private MailboxSession session;
+
+    private ComposedMessageId m1;
+    private ComposedMessageId m2;
+    private ComposedMessageId m3;
+    private ComposedMessageId m4;
+    private ComposedMessageId m5;
+    private ComposedMessageId m6;
+    private ComposedMessageId m7;
+    private ComposedMessageId m8;
+    private ComposedMessageId m9;
+    private ComposedMessageId mOther;
+    private ComposedMessageId mailWithAttachment;
+    private ComposedMessageId mailWithInlinedAttachment;
+    private StoreMessageManager myFolderMessageManager;
+
 
     @Before
     public void setUp() throws Exception {
@@ -67,13 +86,11 @@ public abstract class AbstractMessageSearchIndexTest {
         StoreMessageManager inboxMessageManager = (StoreMessageManager) storeMailboxManager.getMailbox(inboxPath, session);
         MailboxPath myFolderPath = new MailboxPath("#private", "benwa", "MyFolder");
         storeMailboxManager.createMailbox(myFolderPath, session);
-        StoreMessageManager myFolderMessageManager = (StoreMessageManager) storeMailboxManager.getMailbox(myFolderPath, session);
+        myFolderMessageManager = (StoreMessageManager) storeMailboxManager.getMailbox(myFolderPath, session);
         mailbox = inboxMessageManager.getMailboxEntity();
         mailbox2 = myFolderMessageManager.getMailboxEntity();
 
-        // sentDate: Wed, 3 Jun 2015 09:05:46 +0000
-        // Internal date : 2014/01/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m1 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/spamMail.eml"),
             new Date(1388617200000L),
             session,
@@ -81,7 +98,7 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags(Flags.Flag.DELETED));
         // sentDate: Thu, 4 Jun 2015 09:23:37 +0000
         // Internal date : 2014/02/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m2 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/mail1.eml"),
             new Date(1391295600000L),
             session,
@@ -89,7 +106,7 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags(Flags.Flag.ANSWERED));
         // sentDate: Thu, 4 Jun 2015 09:27:37 +0000
         // Internal date : 2014/03/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m3 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/mail2.eml"),
             new Date(1393714800000L),
             session,
@@ -97,7 +114,7 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags(Flags.Flag.DRAFT));
         // sentDate: Tue, 2 Jun 2015 08:16:19 +0000
         // Internal date : 2014/05/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m4 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/mail3.eml"),
             new Date(1398981600000L),
             session,
@@ -105,7 +122,7 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags(Flags.Flag.RECENT));
         // sentDate: Fri, 15 May 2015 06:35:59 +0000
         // Internal date : 2014/04/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m5 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/mail4.eml"),
             new Date(1396389600000L),
             session,
@@ -113,7 +130,7 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags(Flags.Flag.FLAGGED));
         // sentDate: Wed, 03 Jun 2015 19:14:32 +0000
         // Internal date : 2014/06/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m6 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/pgpSignedMail.eml"),
             new Date(1401660000000L),
             session,
@@ -121,7 +138,7 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags(Flags.Flag.SEEN));
         // sentDate: Thu, 04 Jun 2015 07:36:08 +0000
         // Internal date : 2014/07/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m7 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/htmlMail.eml"),
             new Date(1404252000000L),
             session,
@@ -129,7 +146,7 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags());
         // sentDate: Thu, 4 Jun 2015 06:08:41 +0200
         // Internal date : 2014/08/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m8 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/mail.eml"),
             new Date(1406930400000L),
             session,
@@ -137,25 +154,143 @@ public abstract class AbstractMessageSearchIndexTest {
             new Flags("Hello"));
         // sentDate: Thu, 4 Jun 2015 06:08:41 +0200
         // Internal date : 2014/08/02 00:00:00.000
-        myFolderMessageManager.appendMessage(
+        mOther = myFolderMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/mail.eml"),
             new Date(1406930400000L),
             session,
             true,
             new Flags(Flags.Flag.SEEN));
-        // sentDate: Tue, 2 Jun 2015 12:00:55 +0200
-        // Internal date : 2014/09/02 00:00:00.000
-        inboxMessageManager.appendMessage(
+        m9 = inboxMessageManager.appendMessage(
             ClassLoader.getSystemResourceAsStream("eml/frnog.eml"),
             new Date(1409608800000L),
             session,
             true,
             new Flags("Hello you"));
+
+        mailWithAttachment = myFolderMessageManager.appendMessage(
+            ClassLoader.getSystemResourceAsStream("eml/oneAttachmentAndSomeTextInlined.eml"),
+            new Date(1409608900000L),
+            session,
+            true,
+            new Flags("Hello you"));
+
+        mailWithInlinedAttachment = myFolderMessageManager.appendMessage(
+            ClassLoader.getSystemResourceAsStream("eml/oneInlinedAttachment.eml"),
+            new Date(1409608900000L),
+            session,
+            true,
+            new Flags("Hello you"));
+
         await();
     }
 
     protected abstract void await();
     protected abstract void initializeMailboxManager() throws Exception;
+
+    @Test
+    public void searchingMessageInMultipleMailboxShouldNotReturnTwiceTheSameMessage() throws MailboxException {
+        Assume.assumeTrue(messageIdManager != null);
+
+        messageIdManager.setInMailboxes(m4.getMessageId(),
+            ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()),
+            session);
+
+        await();
+
+        SearchQuery searchQuery = new SearchQuery();
+
+        assertThat(messageSearchIndex.search(session,
+            MultimailboxesSearchQuery.from(searchQuery)
+                .inMailboxes(mailbox.getMailboxId(), mailbox2.getMailboxId())
+                .build(), 20))
+            .hasSize(12)
+            .containsOnly(m1.getMessageId(),
+                m2.getMessageId(),
+                m3.getMessageId(),
+                m4.getMessageId(),
+                m5.getMessageId(),
+                m6.getMessageId(),
+                m7.getMessageId(),
+                m8.getMessageId(),
+                m9.getMessageId(),
+                mOther.getMessageId(),
+                mailWithAttachment.getMessageId(),
+                mailWithInlinedAttachment.getMessageId());
+    }
+
+    @Test
+    public void searchingMessageInMultipleMailboxShouldUnionOfTheTwoMailbox() throws MailboxException {
+        Assume.assumeTrue(messageIdManager != null);
+        messageIdManager.setInMailboxes(m4.getMessageId(),
+            ImmutableList.of(mailbox2.getMailboxId()),
+            session);
+
+        await();
+
+        SearchQuery searchQuery = new SearchQuery();
+
+        assertThat(messageSearchIndex.search(session,
+            MultimailboxesSearchQuery.from(searchQuery)
+                .inMailboxes(mailbox.getMailboxId(), mailbox2.getMailboxId())
+                .build(), 20))
+            .containsOnly(m1.getMessageId(),
+                m2.getMessageId(),
+                m3.getMessageId(),
+                m4.getMessageId(),
+                m5.getMessageId(),
+                m6.getMessageId(),
+                m7.getMessageId(),
+                m8.getMessageId(),
+                m9.getMessageId(),
+                mOther.getMessageId(),
+                mailWithAttachment.getMessageId(),
+                mailWithInlinedAttachment.getMessageId());
+    }
+
+    @Test
+    public void searchingMessageInMultipleMailboxShouldNotReturnLessMessageThanLimitArgument() throws MailboxException {
+        Assume.assumeTrue(messageIdManager != null);
+        messageIdManager.setInMailboxes(m1.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+        messageIdManager.setInMailboxes(m2.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+        messageIdManager.setInMailboxes(m3.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+        messageIdManager.setInMailboxes(m4.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+        messageIdManager.setInMailboxes(m5.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+        messageIdManager.setInMailboxes(m6.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+        messageIdManager.setInMailboxes(m7.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+
+        await();
+
+        SearchQuery searchQuery = new SearchQuery();
+
+        assertThat(messageSearchIndex.search(session,
+            MultimailboxesSearchQuery.from(searchQuery)
+                .inMailboxes(mailbox2.getMailboxId(), mailbox.getMailboxId())
+                .build(), 10))
+            .hasSize(10);
+    }
+
+    @Test
+    public void searchingMessageInMultipleMailboxShouldNotReturnLessMessageThanLimitArgumentEvenIfDuplicatedMessageAreBeforeLegitimeMessage() throws MailboxException {
+        Assume.assumeTrue(messageIdManager != null);
+        messageIdManager.setInMailboxes(m1.getMessageId(), ImmutableList.of(mailbox.getMailboxId(), mailbox2.getMailboxId()), session);
+
+        SearchQuery searchQuery = new SearchQuery();
+
+        myFolderMessageManager.appendMessage(
+                ClassLoader.getSystemResourceAsStream("eml/mail.eml"),
+                new Date(1406930400000L),
+                session,
+                true,
+                new Flags(Flags.Flag.SEEN));
+
+        await();
+
+        assertThat(messageSearchIndex.search(session,
+                MultimailboxesSearchQuery.from(searchQuery)
+                        .inMailboxes(mailbox2.getMailboxId(), mailbox.getMailboxId())
+                        .build(), 13))
+                .hasSize(13);
+    }
 
     @Test(expected = IllegalArgumentException.class)
     public void searchShouldThrowWhenSessionIsNull() throws MailboxException {
@@ -178,7 +313,7 @@ public abstract class AbstractMessageSearchIndexTest {
     public void emptySearchQueryShouldReturnAllUids() throws MailboxException {
         SearchQuery searchQuery = new SearchQuery();
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -186,7 +321,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.all());
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -197,7 +332,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.bodyContains("MAILET-94"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(5L);
+            .containsOnly(m5.getUid());
     }
 
     @Test
@@ -209,7 +344,23 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.bodyContains("created summary"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(2L, 8L);
+            .containsOnly(m2.getUid(), m8.getUid());
+    }
+
+    @Test
+    public void hasAttachmentShouldOnlyReturnMessageThatHasAttachmentWhichAreNotInline() throws MailboxException {
+        SearchQuery searchQuery = new SearchQuery();
+        searchQuery.andCriteria(SearchQuery.hasAttachment());
+        assertThat(messageSearchIndex.search(session, mailbox2, searchQuery))
+            .containsOnly(mailWithAttachment.getUid());
+    }
+
+    @Test
+    public void hasNoAttachmenShouldOnlyReturnMessageThatHasNoAttachmentWhichAreNotInline() throws MailboxException {
+        SearchQuery searchQuery = new SearchQuery();
+        searchQuery.andCriteria(SearchQuery.hasNoAttachment());
+        assertThat(messageSearchIndex.search(session, mailbox2, searchQuery))
+            .containsOnly(mOther.getUid(), mailWithInlinedAttachment.getUid());
     }
 
     @Test
@@ -217,7 +368,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.DELETED));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L);
+            .containsOnly(m1.getUid());
     }
 
     @Test
@@ -225,7 +376,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.ANSWERED));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(2L);
+            .containsOnly(m2.getUid());
     }
 
     @Test
@@ -233,7 +384,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.DRAFT));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(3L);
+            .containsOnly(m3.getUid());
     }
 
     @Test
@@ -242,7 +393,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.RECENT));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 5L, 6L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -250,7 +401,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.FLAGGED));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(5L);
+            .containsOnly(m5.getUid());
     }
 
     @Test
@@ -259,17 +410,17 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.SEEN));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(6L);
+            .containsOnly(m6.getUid());
     }
     
     @Test
     public void multimailboxSearchShouldReturnUidOfMessageMarkedAsSeenInAllMailboxes() throws MailboxException {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.SEEN));
-        Map<MailboxId, Collection<Long>> actual = messageSearchIndex.search(session, MultimailboxesSearchQuery.from(searchQuery).build());
-        assertThat(actual.entrySet()).hasSize(2);
-        assertThat(actual.get(mailbox.getMailboxId())).containsExactly(6L);
-        assertThat(actual.get(mailbox2.getMailboxId())).containsExactly(1L);
+
+        List<MessageId> actual = messageSearchIndex.search(session, MultimailboxesSearchQuery.from(searchQuery).build(), LIMIT);
+
+        assertThat(actual).containsOnly(mOther.getMessageId(), m6.getMessageId());
     }
 
     @Test
@@ -281,9 +432,10 @@ public abstract class AbstractMessageSearchIndexTest {
                     .from(searchQuery)
                     .inMailboxes(mailbox.getMailboxId())
                     .build();
-        Map<MailboxId, Collection<Long>> actual = messageSearchIndex.search(session, query);
-        assertThat(actual.entrySet()).hasSize(1);
-        assertThat(actual.get(mailbox.getMailboxId())).containsExactly(6L);
+
+        List<MessageId> actual = messageSearchIndex.search(session, query, LIMIT);
+
+        assertThat(actual).containsOnly(m6.getMessageId());
     }
 
     @Test
@@ -295,10 +447,9 @@ public abstract class AbstractMessageSearchIndexTest {
                     .from(searchQuery)
                     .inMailboxes(mailbox.getMailboxId(), mailbox2.getMailboxId())
                     .build();
-        Map<MailboxId, Collection<Long>> actual = messageSearchIndex.search(session, query);
-        assertThat(actual.entrySet()).hasSize(2);
-        assertThat(actual.get(mailbox.getMailboxId())).containsExactly(8L);
-        assertThat(actual.get(mailbox2.getMailboxId())).containsExactly(1L);
+        List<MessageId> actual = messageSearchIndex.search(session, query, LIMIT);
+
+        assertThat(actual).containsOnly(mOther.getMessageId(), m8.getMessageId());
     }
 
     @Test
@@ -309,10 +460,10 @@ public abstract class AbstractMessageSearchIndexTest {
                 MultimailboxesSearchQuery
                     .from(searchQuery)
                     .build();
-        Map<MailboxId, Collection<Long>> actual = messageSearchIndex.search(session, query);
-        assertThat(actual.entrySet()).hasSize(2);
-        assertThat(actual.get(mailbox.getMailboxId())).containsExactly(8L);
-        assertThat(actual.get(mailbox2.getMailboxId())).containsExactly(1L);
+
+        List<MessageId> actual = messageSearchIndex.search(session, query, LIMIT);
+
+        assertThat(actual).containsOnly(mOther.getMessageId(), m8.getMessageId());
     }
 
     @Test
@@ -324,18 +475,36 @@ public abstract class AbstractMessageSearchIndexTest {
                     .from(searchQuery)
                     .inMailboxes(mailbox.getMailboxId(), mailbox2.getMailboxId())
                     .build();
-        Map<MailboxId, Collection<Long>> actual = messageSearchIndex.search(session, query);
-        assertThat(actual.entrySet()).hasSize(2);
-        assertThat(actual.get(mailbox.getMailboxId())).containsExactly(6L);
-        assertThat(actual.get(mailbox2.getMailboxId())).containsExactly(1L);
+
+        List<MessageId> actual = messageSearchIndex.search(session, query, LIMIT);
+
+        assertThat(actual).containsOnly(mOther.getMessageId(), m6.getMessageId());
     }
-    
+
+    @Test
+    public void multimailboxSearchShouldLimitTheSize() throws MailboxException {
+        SearchQuery searchQuery = new SearchQuery();
+        searchQuery.andCriteria(SearchQuery.flagIsSet(Flags.Flag.SEEN));
+        MultimailboxesSearchQuery query =
+            MultimailboxesSearchQuery
+                .from(searchQuery)
+                .inMailboxes(mailbox.getMailboxId(), mailbox2.getMailboxId())
+                .build();
+
+        long limit = 1;
+        List<MessageId> actual = messageSearchIndex.search(session, query, limit);
+        // Two messages matches this query : mOther and m6
+
+        assertThat(actual).hasSize(1);
+    }
+
+
     @Test
     public void flagIsSetShouldReturnUidsOfMessageContainingAGivenUserFlag() throws MailboxException {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsSet("Hello"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(8L);
+            .containsOnly(m8.getUid());
     }
 
     @Test
@@ -351,7 +520,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsUnSet(Flags.Flag.DELETED));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+            .containsOnly(m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -359,7 +528,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsUnSet(Flags.Flag.ANSWERED));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+            .containsOnly(m1.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -367,7 +536,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsUnSet(Flags.Flag.DRAFT));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 4L, 5L, 6L, 7L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -376,7 +545,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsUnSet(Flags.Flag.RECENT));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(7L);
+            .containsOnly(m7.getUid());
     }
 
     @Test
@@ -384,7 +553,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsUnSet(Flags.Flag.FLAGGED));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 6L, 7L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -393,7 +562,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsUnSet(Flags.Flag.SEEN));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 5L, 7L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -401,7 +570,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.flagIsUnSet("Hello"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 5L, 6L, 7L,  9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m7.getUid(),  m9.getUid());
     }
 
     @Test
@@ -410,7 +579,7 @@ public abstract class AbstractMessageSearchIndexTest {
         // Date : 2014/07/02 00:00:00.000 ( Paris time zone )
         searchQuery.andCriteria(SearchQuery.internalDateAfter(new Date(1404252000000L), SearchQuery.DateResolution.Day));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(7L, 8L, 9L);
+            .containsOnly(m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -419,7 +588,7 @@ public abstract class AbstractMessageSearchIndexTest {
         // Date : 2014/02/02 00:00:00.000 ( Paris time zone )
         searchQuery.andCriteria(SearchQuery.internalDateBefore(new Date(1391295600000L), SearchQuery.DateResolution.Day));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L);
+            .containsOnly(m1.getUid(), m2.getUid());
     }
 
     @Test
@@ -428,7 +597,7 @@ public abstract class AbstractMessageSearchIndexTest {
         // Date : 2014/03/02 00:00:00.000 ( Paris time zone )
         searchQuery.andCriteria(SearchQuery.internalDateOn(new Date(1393714800000L), SearchQuery.DateResolution.Day));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(3L);
+            .containsOnly(m3.getUid());
     }
 
     @Test
@@ -436,7 +605,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.modSeqEquals(2L));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(2L);
+            .containsOnly(m2.getUid());
     }
 
     @Test
@@ -444,7 +613,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.modSeqGreaterThan(7L));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(7L, 8L, 9L);
+            .containsOnly(m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -452,7 +621,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.modSeqLessThan(3L));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid());
     }
 
     @Test
@@ -461,7 +630,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.sizeGreaterThan(6800L));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(6L);
+            .containsOnly(m6.getUid());
     }
 
     @Test
@@ -470,7 +639,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.sizeLessThan(5000L));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(2L, 3L, 4L, 5L, 7l, 9L);
+            .containsOnly(m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m7.getUid(), m9.getUid());
     }
 
     @Test
@@ -478,7 +647,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.headerContains("Precedence", "list"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 6L, 8L, 9L);
+            .containsOnly(m1.getUid(), m6.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -486,7 +655,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.headerExists("Precedence"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 5L, 6L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -494,7 +663,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.address(SearchQuery.AddressType.From, "murari.ksr@gmail.com"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(8L);
+            .containsOnly(m8.getUid());
     }
 
     @Test
@@ -502,7 +671,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.address(SearchQuery.AddressType.To, "root@listes.minet.net"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L);
+            .containsOnly(m1.getUid());
     }
 
     @Test
@@ -510,7 +679,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.address(SearchQuery.AddressType.Cc, "any@any.com"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(5L);
+            .containsOnly(m5.getUid());
     }
 
     @Test
@@ -518,25 +687,25 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.address(SearchQuery.AddressType.Bcc, "no@no.com"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(9L);
+            .containsOnly(m9.getUid());
     }
 
     @Test
     public void uidShouldreturnExistingUidsOnTheGivenRanges() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 4L), new SearchQuery.NumericRange(6L, 7L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m4.getUid()), new SearchQuery.UidRange(m6.getUid(), m7.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(2L, 3L, 4L, 6L, 7L);
+            .containsOnly(m2.getUid(), m3.getUid(), m4.getUid(), m6.getUid(), m7.getUid());
     }
 
     @Test
     public void uidShouldreturnEveryThing() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {};
+        SearchQuery.UidRange[] numericRanges = {};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+            .containsOnly(m1.getUid(), m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -545,7 +714,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.headerExists("Precedence"));
         searchQuery.andCriteria(SearchQuery.modSeqGreaterThan(6L));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(6L, 8L, 9L);
+            .containsOnly(m6.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -556,19 +725,19 @@ public abstract class AbstractMessageSearchIndexTest {
                 SearchQuery.headerExists("Precedence"),
                 SearchQuery.modSeqGreaterThan(6L)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(6L, 8L, 9L);
+            .containsOnly(m6.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
     public void orShouldReturnResultsMatchinganyRequests() throws Exception {
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 4L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m4.getUid())};
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(
             SearchQuery.or(
                 SearchQuery.uid(numericRanges),
                 SearchQuery.modSeqGreaterThan(6L)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(2L, 3L, 4L, 6L, 7L, 8L, 9L);
+            .containsOnly(m2.getUid(), m3.getUid(), m4.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -577,7 +746,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(
             SearchQuery.not(SearchQuery.headerExists("Precedence")));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(7L);
+            .containsOnly(m7.getUid());
     }
 
     @Test
@@ -586,7 +755,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.all());
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Arrival)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(1L, 2L, 3L, 5L, 4L, 6L, 7L, 8L, 9L);
+            .containsExactly(m1.getUid(), m2.getUid(), m3.getUid(), m5.getUid(), m4.getUid(), m6.getUid(), m7.getUid(), m8.getUid(), m9.getUid());
     }
 
     @Test
@@ -595,7 +764,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.all());
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Arrival, true)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(9L, 8L, 7L, 6L, 4L, 5L, 3L, 2L, 1L);
+            .containsExactly(m9.getUid(), m8.getUid(), m7.getUid(), m6.getUid(), m4.getUid(), m5.getUid(), m3.getUid(), m2.getUid(), m1.getUid());
     }
 
     @Test
@@ -605,7 +774,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.headerDateAfter("sentDate", new Date(1433408400000L), SearchQuery.DateResolution.Second));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Arrival, true)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(3L, 2L);
+            .containsOnly(m3.getUid(), m2.getUid());
     }
 
     @Test
@@ -615,7 +784,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.headerDateBefore("sentDate", new Date(1433109600000L), SearchQuery.DateResolution.Day));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Arrival, true)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(5L);
+            .containsOnly(m5.getUid());
     }
 
     @Test
@@ -625,7 +794,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.headerDateOn("sentDate", new Date(1433224800000L), SearchQuery.DateResolution.Day));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Arrival, true)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(4L, 9L);
+            .containsOnly(m4.getUid(), m9.getUid());
     }
 
     @Test
@@ -633,17 +802,17 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.mailContains("root mailing list"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsOnly(1L, 6L);
+            .containsOnly(m1.getUid(), m6.getUid());
     }
 
     @Test
     public void sortOnCcShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.MailboxCc)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(3L, 5L, 4L, 2L);
+            .containsExactly(m3.getUid(), m5.getUid(), m4.getUid(), m2.getUid());
         // 2 : No cc
         // 3 : Cc : abc@abc.org
         // 4 : zzz@bcd.org
@@ -653,11 +822,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnFromShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.MailboxFrom)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(3L, 2L, 4L, 5L);
+            .containsExactly(m3.getUid(), m2.getUid(), m4.getUid(), m5.getUid());
         // 2 : jira2@apache.org
         // 3 : jira1@apache.org
         // 4 : jira@apache.org
@@ -667,11 +836,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnToShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.MailboxTo)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(5L, 2L, 3L, 4L);
+            .containsExactly(m5.getUid(), m2.getUid(), m3.getUid(), m4.getUid());
         // 2 : server-dev@james.apache.org
         // 3 : server-dev@james.apache.org
         // 4 : server-dev@james.apache.org
@@ -681,11 +850,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnSubjectShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.BaseSubject)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(4L, 3L, 2L, 5L);
+            .containsExactly(m4.getUid(), m3.getUid(), m2.getUid(), m5.getUid());
         // 2 : [jira] [Created] (MAILBOX-234) Convert Message into JSON
         // 3 : [jira] [Closed] (MAILBOX-217) We should index attachment in elastic search
         // 4 : [jira] [Closed] (MAILBOX-11) MailboxQuery ignore namespace
@@ -695,11 +864,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnSizeShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Size)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(2L, 3L, 5L, 4L);
+            .containsExactly(m2.getUid(), m3.getUid(), m5.getUid(), m4.getUid());
         // 2 : 3210 o
         // 3 : 3647 o
         // 4 : 4360 o
@@ -709,11 +878,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnDisplayFromShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.DisplayFrom)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(4L, 3L, 5L, 2L);
+            .containsExactly(m4.getUid(), m3.getUid(), m5.getUid(), m2.getUid());
         // 2 : Tellier Benoit (JIRA)
         // 3 : efij
         // 4 : abcd
@@ -723,11 +892,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnDisplayToShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.DisplayTo)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(3L, 2L, 4L, 5L);
+            .containsExactly(m3.getUid(), m2.getUid(), m4.getUid(), m5.getUid());
         // 2 : abc
         // 3 : aaa
         // 4 : server
@@ -737,11 +906,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnSentDateShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.SentDate)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(5L, 4L, 2L, 3L);
+            .containsExactly(m5.getUid(), m4.getUid(), m2.getUid(), m3.getUid());
         // 2 : 4 Jun 2015 09:23:37
         // 3 : 4 Jun 2015 09:27:37
         // 4 : 2 Jun 2015 08:16:19
@@ -751,11 +920,11 @@ public abstract class AbstractMessageSearchIndexTest {
     @Test
     public void sortOnIdShouldWork() throws Exception {
         SearchQuery searchQuery = new SearchQuery();
-        SearchQuery.NumericRange[] numericRanges = {new SearchQuery.NumericRange(2L, 5L)};
+        SearchQuery.UidRange[] numericRanges = {new SearchQuery.UidRange(m2.getUid(), m5.getUid())};
         searchQuery.andCriteria(SearchQuery.uid(numericRanges));
         searchQuery.setSorts(Lists.newArrayList(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Uid)));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(2L, 3L, 4L, 5L);
+            .containsExactly(m2.getUid(), m3.getUid(), m4.getUid(), m5.getUid());
     }
 
     @Test
@@ -773,7 +942,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.textContains("spam.minet.net"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(1l);
+            .containsExactly(m1.getUid());
     }
 
     @Test
@@ -782,7 +951,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.textContains("listes.minet.net"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(1l);
+            .containsExactly(m1.getUid());
     }
 
     @Test
@@ -791,7 +960,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.textContains("abc.org"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(3l);
+            .containsExactly(m3.getUid());
     }
 
     @Test
@@ -800,7 +969,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.textContains("any.com"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(5l);
+            .containsExactly(m5.getUid());
     }
 
     @Test
@@ -810,7 +979,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.textContains("reviewing work"));
         // text/plain contains: "We are reviewing work I did for this feature."
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(3l);
+            .containsExactly(m3.getUid());
     }
 
     @Test
@@ -821,7 +990,7 @@ public abstract class AbstractMessageSearchIndexTest {
         // 3: text/plain contains: "We are reviewing work I did for this feature."
         searchQuery.andCriteria(SearchQuery.textContains("reviewing feature"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(2l, 3l);
+            .containsExactly(m2.getUid(), m3.getUid());
     }
 
     @Test
@@ -831,7 +1000,7 @@ public abstract class AbstractMessageSearchIndexTest {
         // text/plain contains: "We are reviewing work I did for this feature."
         searchQuery.andCriteria(SearchQuery.textContains("reVieWing"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(3l);
+            .containsExactly(m3.getUid());
     }
 
     @Test
@@ -841,7 +1010,7 @@ public abstract class AbstractMessageSearchIndexTest {
         searchQuery.andCriteria(SearchQuery.textContains("a reviewing of the work"));
         // text/plain contains: "We are reviewing work I did for this feature."
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(3l);
+            .containsExactly(m3.getUid());
     }
 
     @Test
@@ -851,7 +1020,7 @@ public abstract class AbstractMessageSearchIndexTest {
         // text/html contains: "This is a mail with beautifull html content which contains a banana."
         searchQuery.andCriteria(SearchQuery.textContains("contains a banana"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(7l);
+            .containsExactly(m7.getUid());
     }
 
     @Test
@@ -860,7 +1029,7 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.textContains("contain banana"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(7l);
+            .containsExactly(m7.getUid());
     }
 
     @Test
@@ -869,6 +1038,18 @@ public abstract class AbstractMessageSearchIndexTest {
         SearchQuery searchQuery = new SearchQuery();
         searchQuery.andCriteria(SearchQuery.textContains("beautifull banana"));
         assertThat(messageSearchIndex.search(session, mailbox, searchQuery))
-            .containsExactly(7l);
+            .containsExactly(m7.getUid());
+    }
+
+    @Test
+    public void sortShouldNotDiscardResultWhenSearchingFieldIsIdentical() throws Exception {
+        SearchQuery searchQuery = new SearchQuery();
+        searchQuery.andCriteria(new SearchQuery.AllCriterion());
+        searchQuery.setSorts(ImmutableList.of(new SearchQuery.Sort(SearchQuery.Sort.SortClause.Arrival)));
+
+        List<MessageId> actual = messageSearchIndex.search(session, MultimailboxesSearchQuery.from(searchQuery).build(), LIMIT);
+
+        assertThat(actual).containsOnly(m1.getMessageId(), m2.getMessageId(), m3.getMessageId(), m4.getMessageId(), m5.getMessageId(),
+            m6.getMessageId(), m7.getMessageId(), m8.getMessageId(), m9.getMessageId(), mOther.getMessageId(), mailWithAttachment.getMessageId(), mailWithInlinedAttachment.getMessageId());
     }
 }

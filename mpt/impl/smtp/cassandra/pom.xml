@@ -17,12 +17,11 @@
     specific language governing permissions and limitations
     under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>apache-james-mpt-smtp</artifactId>
         <groupId>org.apache.james</groupId>
-        <version>0.2-SNAPSHOT</version>
+        <version>3.0.0-beta6-SNAPSHOT</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -161,9 +160,9 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>
-                    <artifactId>apache-james-mailbox-elasticsearch</artifactId>
-                    <scope>test</scope>
+                    <artifactId>apache-james-backends-es</artifactId>
                     <type>test-jar</type>
+                    <scope>test</scope>
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>
@@ -190,13 +189,19 @@
                     <type>test-jar</type>
                 </dependency>
                 <dependency>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>james-server-guice-jmap</artifactId>
+                    <scope>test</scope>
+                    <type>test-jar</type>
+                </dependency>
+                <dependency>
                     <groupId>com.google.guava</groupId>
                     <artifactId>guava</artifactId>
                     <version>18.0</version>
                 </dependency>
                 <dependency>
-                    <groupId>org.apache.onami</groupId>
-                    <artifactId>org.apache.onami.test</artifactId>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>apache-james-mpt-onami-test</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>org.cassandraunit</groupId>
@@ -256,7 +261,7 @@
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>
-                    <artifactId>apache-james-mailbox-elasticsearch</artifactId>
+                    <artifactId>apache-james-backends-es</artifactId>
                     <scope>test</scope>
                     <type>test-jar</type>
                 </dependency>
@@ -267,6 +272,10 @@
                 <dependency>
                     <groupId>org.apache.james</groupId>
                     <artifactId>apache-james-mpt-smtp-core</artifactId>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>apache-james-mpt-onami-test</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>org.apache.james</groupId>
@@ -285,13 +294,15 @@
                     <type>test-jar</type>
                 </dependency>
                 <dependency>
+                    <groupId>org.apache.james</groupId>
+                    <artifactId>james-server-guice-jmap</artifactId>
+                    <scope>test</scope>
+                    <type>test-jar</type>
+                </dependency>
+                <dependency>
                     <groupId>com.google.guava</groupId>
                     <artifactId>guava</artifactId>
                     <version>18.0</version>
-                </dependency>
-                <dependency>
-                    <groupId>org.apache.onami</groupId>
-                    <artifactId>org.apache.onami.test</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>org.cassandraunit</groupId>

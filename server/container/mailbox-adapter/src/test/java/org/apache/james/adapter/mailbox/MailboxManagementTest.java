@@ -28,8 +28,10 @@ import org.apache.james.mailbox.inmemory.InMemoryMailboxSessionMapperFactory;
 import org.apache.james.mailbox.model.MailboxConstants;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.JVMMailboxPathLocker;
-import org.apache.james.mailbox.store.MockAuthenticator;
+import org.apache.james.mailbox.store.FakeAuthenticator;
+import org.apache.james.mailbox.store.FakeAuthorizator;
 import org.apache.james.mailbox.store.StoreMailboxManager;
+import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.apache.james.mailbox.store.mail.model.impl.SimpleMailbox;
@@ -53,11 +55,13 @@ public class MailboxManagementTest {
         inMemoryMapperFactory = new InMemoryMailboxSessionMapperFactory();
         StoreMailboxManager mailboxManager = new StoreMailboxManager(
             inMemoryMapperFactory,
-            new MockAuthenticator(),
+            new FakeAuthenticator(),
+            FakeAuthorizator.defaultReject(),
             new JVMMailboxPathLocker(),
             new UnionMailboxACLResolver(),
             new SimpleGroupMembershipResolver(),
-            new MessageParser());
+            new MessageParser(),
+            new DefaultMessageId.Factory());
         mailboxManager.init();
         mailboxManagerManagement = new MailboxManagerManagement();
         mailboxManagerManagement.setMailboxManager(mailboxManager);

@@ -39,11 +39,13 @@ import javax.mail.internet.MimeMessage;
 
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.james.core.MailImpl;
+import org.apache.james.metrics.api.NoopMetricFactory;
 import org.apache.james.protocols.smtp.MailAddressException;
 import org.apache.james.queue.api.MailQueue.MailQueueItem;
 import org.apache.james.queue.api.MailQueueItemDecoratorFactory;
 import org.apache.james.queue.api.ManageableMailQueue;
 import org.apache.james.queue.api.ManageableMailQueue.MailQueueIterator;
+import org.apache.james.queue.api.RawMailQueueItemDecoratorFactory;
 import org.apache.mailet.Mail;
 import org.apache.mailet.MailAddress;
 import org.junit.Before;
@@ -69,13 +71,13 @@ public abstract class AbstractJMSMailQueueTest {
     
     protected JMSMailQueue createQueue(ConnectionFactory factory, MailQueueItemDecoratorFactory mailQueueItemDecoratorFactory, String queueName) {
         Logger log = LoggerFactory.getLogger(AbstractJMSMailQueueTest.class);
-        return new JMSMailQueue(factory, mailQueueItemDecoratorFactory, queueName, log);
+        return new JMSMailQueue(factory, mailQueueItemDecoratorFactory, queueName, new NoopMetricFactory(), log);
     }
 
     @Before
     public void setUp() throws Exception {
         ConnectionFactory connectionFactory = createConnectionFactory();
-        setQueue(createQueue(connectionFactory, MailQueueItemDecoratorFactory.RAW_FACTORY, QUEUE_NAME));
+        setQueue(createQueue(connectionFactory, new RawMailQueueItemDecoratorFactory(), QUEUE_NAME));
     }
 
     @Test

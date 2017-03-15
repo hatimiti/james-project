@@ -35,6 +35,10 @@ import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.hbase.mail.HBaseModSeqProvider;
 import org.apache.james.mailbox.hbase.mail.HBaseUidProvider;
+import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.mailbox.store.Authenticator;
+import org.apache.james.mailbox.store.Authorizator;
+import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.junit.runner.RunWith;
 import org.xenei.junit.contract.Contract;
@@ -58,14 +62,20 @@ public class HBaseMailboxManagerTest {
 
             HBaseUidProvider uidProvider = new HBaseUidProvider(CLUSTER.getConf());
             HBaseModSeqProvider modSeqProvider = new HBaseModSeqProvider(CLUSTER.getConf());
+            MessageId.Factory messageIdFactory = new DefaultMessageId.Factory();
             HBaseMailboxSessionMapperFactory mapperFactory = new HBaseMailboxSessionMapperFactory(CLUSTER.getConf(),
-                uidProvider, modSeqProvider);
+                uidProvider, modSeqProvider, messageIdFactory);
 
+            Authenticator noAuthenticator = null;
+            Authorizator noAuthorizator = null;
             HBaseMailboxManager manager = new HBaseMailboxManager(mapperFactory,
-                null,
+                noAuthenticator,
+                noAuthorizator,
                 new UnionMailboxACLResolver(),
                 new SimpleGroupMembershipResolver(),
-                new MessageParser());
+                new MessageParser(),
+                messageIdFactory
+                );
 
             try {
                 manager.init();

@@ -27,8 +27,11 @@ import org.apache.james.mailbox.acl.MailboxACLResolver;
 import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
 import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.store.Authenticator;
+import org.apache.james.mailbox.store.Authorizator;
 import org.apache.james.mailbox.store.JVMMailboxPathLocker;
 import org.apache.james.mailbox.store.StoreMailboxManager;
+import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -58,7 +61,10 @@ public class MaildirMailboxManagerTests {
             GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
             MessageParser messageParser = new MessageParser();
 
-            StoreMailboxManager manager = new StoreMailboxManager(mf, null, new JVMMailboxPathLocker(), aclResolver, groupMembershipResolver, messageParser);
+            Authenticator noAuthenticator = null;
+            Authorizator noAuthorizator = null;
+            StoreMailboxManager manager = new StoreMailboxManager(mf, noAuthenticator, noAuthorizator, new JVMMailboxPathLocker(), aclResolver, 
+                    groupMembershipResolver, messageParser, new DefaultMessageId.Factory());
             manager.init();
 
             return manager;

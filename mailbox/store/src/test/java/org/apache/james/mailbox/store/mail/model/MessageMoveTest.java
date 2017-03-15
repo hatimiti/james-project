@@ -29,6 +29,7 @@ import javax.mail.util.SharedByteArrayInputStream;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.model.MessageMetaData;
 import org.apache.james.mailbox.model.MessageRange;
 import org.apache.james.mailbox.store.mail.MessageMapper;
@@ -37,6 +38,7 @@ import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
 import org.apache.james.mailbox.store.mail.model.impl.SimpleMailbox;
 import org.apache.james.mailbox.store.mail.model.impl.SimpleMailboxMessage;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.rules.ExpectedException;
 import org.xenei.junit.contract.Contract;
@@ -46,7 +48,7 @@ import org.xenei.junit.contract.IProducer;
 @Contract(MapperProvider.class)
 public class MessageMoveTest<T extends MapperProvider> {
 
-    private final static char DELIMITER = ':';
+    private final static char DELIMITER = '.';
     private static final int LIMIT = 10;
     private static final int BODY_START = 16;
     public static final int UID_VALIDITY = 42;
@@ -68,11 +70,13 @@ public class MessageMoveTest<T extends MapperProvider> {
         this.producer = producer;
         this.mapperProvider = producer.newInstance();
         this.mapperProvider.ensureMapperPrepared();
+        Assume.assumeTrue(mapperProvider.getSupportedCapabilities().contains(MapperProvider.Capabilities.MOVE));
         this.messageMapper = mapperProvider.createMessageMapper();
+        Assume.assumeNotNull(messageMapper);
 
         benwaInboxMailbox = createMailbox(new MailboxPath("#private", "benwa", "INBOX"));
         benwaWorkMailbox = createMailbox( new MailboxPath("#private", "benwa", "INBOX"+DELIMITER+"work"));
-        message1 = createMessage(benwaInboxMailbox, "Subject: Test1 \n\nBody1\n.\n", BODY_START, new PropertyBuilder());
+        message1 = createMessage(benwaInboxMailbox, mapperProvider.generateMessageId(), "Subject: Test1 \n\nBody1\n.\n", BODY_START, new PropertyBuilder());
     }
 
     @After
@@ -100,7 +104,7 @@ public class MessageMoveTest<T extends MapperProvider> {
         Flags expectedFlags = message1.createFlags();
         expectedFlags.add(Flags.Flag.RECENT);
         assertThat(messageMetaData.getFlags()).isEqualTo(expectedFlags);
-        assertThat(messageMetaData.getUid()).isEqualTo(messageMapper.getLastUid(benwaWorkMailbox));
+        assertThat(messageMetaData.getUid()).isEqualTo(messageMapper.getLastUid(benwaWorkMailbox).get());
         assertThat(messageMetaData.getModSeq()).isEqualTo(messageMapper.getHighestModSeq(benwaWorkMailbox));
     }
 
@@ -149,7 +153,7 @@ public class MessageMoveTest<T extends MapperProvider> {
         return messageMapper.findInMailbox(mailbox, MessageRange.one(message.getUid()), FetchType.Metadata, LIMIT).next();
     }
     
-    private SimpleMailboxMessage createMessage(Mailbox mailbox, String content, int bodyStart, PropertyBuilder propertyBuilder) {
-        return new SimpleMailboxMessage(new Date(), content.length(), bodyStart, new SharedByteArrayInputStream(content.getBytes()), new Flags(), propertyBuilder, mailbox.getMailboxId());
+    private SimpleMailboxMessage createMessage(Mailbox mailbox, MessageId messageId, String content, int bodyStart, PropertyBuilder propertyBuilder) {
+        return new SimpleMailboxMessage(messageId, new Date(), content.length(), bodyStart, new SharedByteArrayInputStream(content.getBytes()), new Flags(), propertyBuilder, mailbox.getMailboxId());
     }
 }

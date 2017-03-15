@@ -35,6 +35,8 @@ import org.apache.james.lifecycle.api.LifecycleUtil;
 import org.apache.james.lifecycle.api.LogEnabled;
 import org.apache.james.mailetcontainer.api.MailProcessor;
 import org.apache.james.mailetcontainer.api.jmx.MailSpoolerMBean;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
 import org.apache.james.queue.api.MailQueue;
 import org.apache.james.queue.api.MailQueue.MailQueueException;
 import org.apache.james.queue.api.MailQueue.MailQueueItem;
@@ -50,6 +52,7 @@ import org.slf4j.Logger;
  */
 public class JamesMailSpooler implements Runnable, Disposable, Configurable, LogEnabled, MailSpoolerMBean {
 
+    public static final String SPOOL_PROCESSING = "spoolProcessing";
     private MailQueue queue;
 
     /**
@@ -69,6 +72,8 @@ public class JamesMailSpooler implements Runnable, Disposable, Configurable, Log
      */
     private final AtomicBoolean active = new AtomicBoolean(false);
 
+    private final MetricFactory metricFactory;
+
     /**
      * Spool threads
      */
@@ -86,6 +91,11 @@ public class JamesMailSpooler implements Runnable, Disposable, Configurable, Log
     private MailQueueFactory queueFactory;
 
     private int numDequeueThreads;
+
+    @Inject
+    public JamesMailSpooler(MetricFactory metricFactory) {
+        this.metricFactory = metricFactory;
+    }
 
     @Inject
     public void setMailQueueFactory(MailQueueFactory queueFactory) {
@@ -151,6 +161,7 @@ public class JamesMailSpooler implements Runnable, Disposable, Configurable, Log
 
                     @Override
                     public void run() {
+                        TimeMetric timeMetric = metricFactory.timer(SPOOL_PROCESSING);
                         try {
                             numActive.incrementAndGet();
 
@@ -184,6 +195,7 @@ public class JamesMailSpooler implements Runnable, Disposable, Configurable, Log
                         } finally {
                             processingActive.decrementAndGet();
                             numActive.decrementAndGet();
+                            timeMetric.stopAndPublish();
                         }
 
                     }

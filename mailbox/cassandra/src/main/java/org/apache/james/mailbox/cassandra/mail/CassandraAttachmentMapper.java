@@ -40,9 +40,9 @@ import org.apache.commons.io.IOUtils;
 import org.apache.james.backends.cassandra.utils.CassandraAsyncExecutor;
 import org.apache.james.mailbox.exception.AttachmentNotFoundException;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.model.Attachment;
+import org.apache.james.mailbox.model.AttachmentId;
 import org.apache.james.mailbox.store.mail.AttachmentMapper;
-import org.apache.james.mailbox.store.mail.model.Attachment;
-import org.apache.james.mailbox.store.mail.model.AttachmentId;
 
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
@@ -92,8 +92,15 @@ public class CassandraAttachmentMapper implements AttachmentMapper {
     }
 
     @Override
-    public List<Attachment> getAttachments(List<AttachmentId> attachmentIds) {
+    public List<Attachment> getAttachments(Collection<AttachmentId> attachmentIds) {
+        return getAttachmentsAsFuture(attachmentIds).join();
+    }
+
+    public CompletableFuture<List<Attachment>> getAttachmentsAsFuture(Collection<AttachmentId> attachmentIds) {
         Preconditions.checkArgument(attachmentIds != null);
+        if (attachmentIds.isEmpty()) {
+            return CompletableFuture.completedFuture(ImmutableList.of());
+        }
         List<String> ids = attachmentIds.stream()
                 .map(AttachmentId::getId)
                 .collect(Guavate.toImmutableList());
@@ -101,8 +108,7 @@ public class CassandraAttachmentMapper implements AttachmentMapper {
             select(FIELDS)
                 .from(TABLE_NAME)
                 .where(in(ID, ids)))
-            .thenApply(this::attachments)
-            .join();
+            .thenApply(this::attachments);
     }
 
     private List<Attachment> attachments(ResultSet resultSet) {

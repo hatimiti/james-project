@@ -40,6 +40,7 @@ import org.apache.james.mailbox.jcr.AbstractJCRScalingMapper;
 import org.apache.james.mailbox.jcr.MailboxSessionJCRRepository;
 import org.apache.james.mailbox.jcr.mail.model.JCRMailbox;
 import org.apache.james.mailbox.model.MailboxACL;
+import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.mail.MailboxMapper;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
@@ -108,6 +109,18 @@ public class JCRMailboxMapper extends AbstractJCRScalingMapper implements Mailbo
         }
     }
 
+    @Override
+    public Mailbox findMailboxById(MailboxId id) throws MailboxException, MailboxNotFoundException {
+        try {
+            Node node = getSession().getNodeByIdentifier(id.serialize());
+            return new JCRMailbox(node, getLogger());
+        } catch (PathNotFoundException e) {
+            throw new MailboxNotFoundException(id.serialize());
+        } catch (RepositoryException e) {
+            throw new MailboxException("Unable to find mailbox " + id.serialize(), e);
+        }
+    }
+
 
     /*
      * (non-Javadoc)
@@ -146,7 +159,7 @@ public class JCRMailboxMapper extends AbstractJCRScalingMapper implements Mailbo
      * org.apache.james.mailbox.store.mail.MailboxMapper#save(org.apache.james.
      * imap.store.mail.model.Mailbox)
      */
-    public void save(Mailbox mailbox) throws MailboxException {
+    public MailboxId save(Mailbox mailbox) throws MailboxException {
         
         try {
             final JCRMailbox jcrMailbox = (JCRMailbox)mailbox;
@@ -178,6 +191,7 @@ public class JCRMailboxMapper extends AbstractJCRScalingMapper implements Mailbo
            } else {
                jcrMailbox.merge(node);
            }
+           return jcrMailbox.getMailboxId();
             
         } catch (RepositoryException e) {
             throw new MailboxException("Unable to save mailbox " + mailbox, e);

@@ -18,6 +18,10 @@
  ****************************************************************/
 package org.apache.james.jmap.send;
 
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Collection;
@@ -27,33 +31,32 @@ import javax.mail.Flags;
 import javax.mail.util.SharedByteArrayInputStream;
 
 import org.apache.james.jmap.model.Message;
+import org.apache.james.jmap.model.MessageContentExtractor;
 import org.apache.james.jmap.model.MessageFactory;
-import org.apache.james.jmap.model.MessageId;
+import org.apache.james.jmap.model.MessageFactory.MetaDataWithContent;
 import org.apache.james.jmap.model.MessagePreviewGenerator;
-import org.apache.james.jmap.utils.HtmlTextExtractor;
-import org.apache.james.jmap.utils.MailboxBasedHtmlTextExtractor;
 import org.apache.james.mailbox.FlagsBuilder;
-import org.apache.james.mailbox.store.TestId;
-import org.apache.james.mailbox.store.extractor.DefaultTextExtractor;
-import org.apache.james.mailbox.store.mail.model.MailboxMessage;
-import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
-import org.apache.james.mailbox.store.mail.model.impl.SimpleMailboxMessage;
+import org.apache.james.mailbox.MessageUid;
+import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.inmemory.InMemoryId;
+import org.apache.james.mailbox.model.TestMessageId;
 import org.apache.mailet.Mail;
 import org.apache.mailet.MailAddress;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 public class MailFactoryTest {
 
     private MailFactory testee;
-    private MailboxMessage mailboxMessage;
+    private MetaDataWithContent message;
     private Message jmapMessage;
 
     @Before
-    public void init() {
+    public void init() throws MailboxException {
         testee = new MailFactory();
         String headers = "From: me@example.com\n"
                 + "To: 1@example.com\n"
@@ -62,22 +65,23 @@ public class MailFactoryTest {
                 + "Subject: news\n";
         String content = headers
                 + "Hello! How are you?";
-        PropertyBuilder propertyBuilder = new PropertyBuilder();
-        propertyBuilder.setMediaType("plain");
-        propertyBuilder.setSubType("text");
-        propertyBuilder.setTextualLineCount(18L);
-        mailboxMessage = new SimpleMailboxMessage(
-                new Date(),
-                content.length(),
-                headers.length(),
-                new SharedByteArrayInputStream(content.getBytes()),
-                new FlagsBuilder().add(Flags.Flag.SEEN).build(),
-                propertyBuilder,
-                TestId.of(2));
-        HtmlTextExtractor htmlTextExtractor = new MailboxBasedHtmlTextExtractor(new DefaultTextExtractor());
-        MessagePreviewGenerator messagePreview = new MessagePreviewGenerator(htmlTextExtractor);
-        MessageFactory messageFactory = new MessageFactory(messagePreview) ;
-        jmapMessage = messageFactory.fromMailboxMessage(mailboxMessage, ImmutableList.of(), x -> MessageId.of("test|test|" + x));
+        
+        message = MetaDataWithContent.builder()
+                .uid(MessageUid.of(2))
+                .flags(new FlagsBuilder().add(Flags.Flag.SEEN).build())
+                .size(content.length())
+                .internalDate(new Date())
+                .sharedContent(new SharedByteArrayInputStream(content.getBytes(Charsets.UTF_8)))
+                .attachments(ImmutableList.of())
+                .mailboxId(InMemoryId.of(3))
+                .messageId(TestMessageId.of(2))
+                .build();
+        MessagePreviewGenerator messagePreview = mock(MessagePreviewGenerator.class);
+        when(messagePreview.forTextBody(any())).thenReturn("text preview");
+
+        MessageContentExtractor messageContentExtractor = new MessageContentExtractor();
+        MessageFactory messageFactory = new MessageFactory(messagePreview, messageContentExtractor);
+        jmapMessage = messageFactory.fromMetaDataWithContent(message);
     }
 
     @Test(expected=NullPointerException.class)
@@ -87,7 +91,7 @@ public class MailFactoryTest {
 
     @Test(expected=NullPointerException.class)
     public void buildMailShouldThrowWhenNullJmapMessage() throws Exception {
-        testee.build(mailboxMessage, null);
+        testee.build(message, null);
     }
 
     @Test
@@ -100,7 +104,7 @@ public class MailFactoryTest {
                 new MailAddress("2@example.com"),
                 new MailAddress("4@example.com"));
         
-        Mail actual = testee.build(mailboxMessage, jmapMessage);
+        Mail actual = testee.build(message, jmapMessage);
         
         assertThat(actual.getName()).isEqualTo(expectedName);
         assertThat(actual.getSender()).isEqualTo(expectedSender);

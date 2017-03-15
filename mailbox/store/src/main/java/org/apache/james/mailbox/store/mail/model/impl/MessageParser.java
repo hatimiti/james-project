@@ -24,9 +24,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
-import org.apache.james.mailbox.store.mail.model.Attachment;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
+import org.apache.james.mailbox.model.Attachment;
+import org.apache.james.mailbox.model.Cid;
+import org.apache.james.mailbox.model.MessageAttachment;
 import org.apache.james.mime4j.MimeException;
+import org.apache.james.mime4j.codec.DecodeMonitor;
+import org.apache.james.mime4j.codec.DecoderUtil;
 import org.apache.james.mime4j.dom.Body;
 import org.apache.james.mime4j.dom.Entity;
 import org.apache.james.mime4j.dom.MessageWriter;
@@ -38,6 +41,9 @@ import org.apache.james.mime4j.dom.field.ParsedField;
 import org.apache.james.mime4j.message.DefaultMessageBuilder;
 import org.apache.james.mime4j.message.DefaultMessageWriter;
 import org.apache.james.mime4j.stream.Field;
+import org.apache.james.mime4j.stream.MimeConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -45,6 +51,13 @@ import com.google.common.collect.ImmutableList;
 
 public class MessageParser {
 
+    private static final MimeConfig MIME_ENTITY_CONFIG = MimeConfig.custom()
+        .setMaxContentLen(-1)
+        .setMaxHeaderCount(-1)
+        .setMaxHeaderLen(-1)
+        .setMaxHeaderCount(-1)
+        .setMaxLineLen(-1)
+        .build();
     private static final String TEXT_MEDIA_TYPE = "text";
     private static final String CONTENT_TYPE = "Content-Type";
     private static final String CONTENT_ID = "Content-ID";
@@ -53,9 +66,12 @@ public class MessageParser {
     private static final List<String> ATTACHMENT_CONTENT_DISPOSITIONS = ImmutableList.of(
             ContentDispositionField.DISPOSITION_TYPE_ATTACHMENT.toLowerCase(),
             ContentDispositionField.DISPOSITION_TYPE_INLINE.toLowerCase());
+    private static final Logger LOGGER = LoggerFactory.getLogger(MessageParser.class);
 
     public List<MessageAttachment> retrieveAttachments(InputStream fullContent) throws MimeException, IOException {
-        Body body = new DefaultMessageBuilder()
+        DefaultMessageBuilder defaultMessageBuilder = new DefaultMessageBuilder();
+        defaultMessageBuilder.setMimeEntityConfig(MIME_ENTITY_CONFIG);
+        Body body = defaultMessageBuilder
                 .parseMessage(fullContent)
                 .getBody();
         try {
@@ -78,7 +94,13 @@ public class MessageParser {
                 attachments.addAll(listAttachments((Multipart) entity.getBody(), Context.fromEntity(entity)));
             } else {
                 if (isAttachment(entity, context)) {
-                    attachments.add(retrieveAttachment(messageWriter, entity));
+                    try {
+                        attachments.add(retrieveAttachment(messageWriter, entity));
+                    } catch (IllegalStateException e) {
+                        LOGGER.error("The attachment is not well-formed: " + e.getCause());
+                    } catch (IOException e) {
+                        LOGGER.error("There is error on retrieve attachment: " + e.getCause());
+                    }
                 }
             }
         }
@@ -128,7 +150,14 @@ public class MessageParser {
         return contentTypeField.transform(new Function<ContentTypeField, Optional<String>>() {
             @Override
             public Optional<String> apply(ContentTypeField field) {
-                return Optional.fromNullable(field.getParameter("name"));
+                return Optional.fromNullable(field.getParameter("name"))
+                  .transform(
+                          new Function<String, String>() {
+                              public String apply(String input) {
+                                  DecodeMonitor monitor = null;
+                                  return DecoderUtil.decodeEncodedWords(input, monitor);
+                              }
+                          });
             }
         }).or(Optional.<String> absent());
     }
@@ -173,7 +202,7 @@ public class MessageParser {
                     public Boolean apply(String dispositionType) {
                         return ATTACHMENT_CONTENT_DISPOSITIONS.contains(dispositionType.toLowerCase());
                     }
-                }).isPresent();
+                }).or(false);
     }
 
     private boolean isTextPart(Entity part) {

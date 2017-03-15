@@ -37,7 +37,10 @@ import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.jcr.mail.JCRModSeqProvider;
 import org.apache.james.mailbox.jcr.mail.JCRUidProvider;
+import org.apache.james.mailbox.store.Authenticator;
+import org.apache.james.mailbox.store.Authorizator;
 import org.apache.james.mailbox.store.JVMMailboxPathLocker;
+import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.junit.runner.RunWith;
 import org.xenei.junit.contract.Contract;
@@ -87,7 +90,10 @@ public class JCRMailboxManagerTest extends MailboxManagerTest<JCRMailboxManager>
             GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
             MessageParser messageParser = new MessageParser();
 
-            JCRMailboxManager manager = new JCRMailboxManager(mf, null, locker, aclResolver, groupMembershipResolver, messageParser);
+            Authenticator noAuthenticator = null;
+            Authorizator noAuthorizator = null;
+            JCRMailboxManager manager = new JCRMailboxManager(mf, noAuthenticator, noAuthorizator, locker, aclResolver, groupMembershipResolver, 
+                    messageParser, new DefaultMessageId.Factory());
 
             try {
                 manager.init();

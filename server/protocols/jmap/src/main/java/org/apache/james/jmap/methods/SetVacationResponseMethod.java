@@ -33,6 +33,8 @@ import org.apache.james.jmap.model.SetVacationRequest;
 import org.apache.james.jmap.model.SetVacationResponse;
 import org.apache.james.jmap.model.VacationResponse;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
 
 import com.google.common.base.Preconditions;
 
@@ -41,17 +43,19 @@ public class SetVacationResponseMethod implements Method {
     public static final Request.Name METHOD_NAME = Request.name("setVacationResponse");
     public static final Response.Name RESPONSE_NAME = Response.name("vacationResponseSet");
     public static final String INVALID_ARGUMENTS = "invalidArguments";
-    public static final String ERROR_MESSAGE_BASE = "There is one VacationResponse object per account, with id set to \"singleton\" and not to ";
+    public static final String ERROR_MESSAGE_BASE = "There is one VacationResponse object per account, with id set to \\\"singleton\\\" and not to ";
     public static final String INVALID_ARGUMENTS1 = "invalidArguments";
     public static final String INVALID_ARGUMENT_DESCRIPTION = "update field should just contain one entry with key \"singleton\"";
 
     private final VacationRepository vacationRepository;
     private final NotificationRegistry notificationRegistry;
+    private final MetricFactory metricFactory;
 
     @Inject
-    public SetVacationResponseMethod(VacationRepository vacationRepository, NotificationRegistry notificationRegistry) {
+    public SetVacationResponseMethod(VacationRepository vacationRepository, NotificationRegistry notificationRegistry, MetricFactory metricFactory) {
         this.vacationRepository = vacationRepository;
         this.notificationRegistry = notificationRegistry;
+        this.metricFactory = metricFactory;
     }
 
     @Override
@@ -72,27 +76,32 @@ public class SetVacationResponseMethod implements Method {
         Preconditions.checkArgument(request instanceof SetVacationRequest);
         SetVacationRequest setVacationRequest = (SetVacationRequest) request;
 
-        if (!setVacationRequest.isValid()) {
-            return Stream.of(JmapResponse
-                .builder()
-                .clientId(clientId)
-                .error(ErrorResponse.builder()
-                    .type(INVALID_ARGUMENTS1)
-                    .description(INVALID_ARGUMENT_DESCRIPTION)
-                    .build())
-                .build());
+        TimeMetric timeMetric = metricFactory.timer(JMAP_PREFIX + METHOD_NAME.getName());
+        try {
+            if (!setVacationRequest.isValid()) {
+                return Stream.of(JmapResponse
+                    .builder()
+                    .clientId(clientId)
+                    .error(ErrorResponse.builder()
+                        .type(INVALID_ARGUMENTS1)
+                        .description(INVALID_ARGUMENT_DESCRIPTION)
+                        .build())
+                    .build());
+            }
+    
+            return process(clientId,
+                AccountId.fromString(mailboxSession.getUser().getUserName()),
+                setVacationRequest.getUpdate().get(Vacation.ID));
+        } finally {
+            timeMetric.stopAndPublish();
         }
-
-        return process(clientId,
-            AccountId.fromString(mailboxSession.getUser().getUserName()),
-            setVacationRequest.getUpdate().get(Vacation.ID));
     }
 
 
 
     private Stream<JmapResponse> process(ClientId clientId, AccountId accountId, VacationResponse vacationResponse) {
         if (vacationResponse.isValid()) {
-            vacationRepository.modifyVacation(accountId, convertToVacation(vacationResponse)).join();
+            vacationRepository.modifyVacation(accountId, vacationResponse.getPatch()).join();
             notificationRegistry.flush(accountId);
             return Stream.of(JmapResponse.builder()
                 .clientId(clientId)
@@ -114,17 +123,6 @@ public class SetVacationResponseMethod implements Method {
                     .build())
                 .build());
         }
-    }
-
-    public Vacation convertToVacation(VacationResponse vacationResponse) {
-        return Vacation.builder()
-            .enabled(vacationResponse.isEnabled())
-            .fromDate(vacationResponse.getFromDate())
-            .toDate(vacationResponse.getToDate())
-            .textBody(vacationResponse.getTextBody())
-            .subject(vacationResponse.getSubject())
-            .htmlBody(vacationResponse.getHtmlBody())
-            .build();
     }
 
 }

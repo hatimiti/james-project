@@ -28,19 +28,26 @@ import javax.mail.internet.SharedInputStream;
 import javax.mail.util.SharedByteArrayInputStream;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.james.mailbox.MessageUid;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MessageAttachment;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.store.mail.model.DelegatingMailboxMessage;
 import org.apache.james.mailbox.store.mail.model.MailboxMessage;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
 
 public class SimpleMailboxMessage extends DelegatingMailboxMessage {
 
     public static SimpleMailboxMessage copy(MailboxId mailboxId, MailboxMessage original) throws MailboxException {
+        return copy(mailboxId, original, original.getAttachments());
+    }
+
+    private static SimpleMailboxMessage copy(MailboxId mailboxId, MailboxMessage original, List<MessageAttachment> attachments) throws MailboxException {
         Date internalDate = original.getInternalDate();
         long size = original.getFullContentOctets();
         Flags flags = original.createFlags();
@@ -48,7 +55,7 @@ public class SimpleMailboxMessage extends DelegatingMailboxMessage {
         int bodyStartOctet = Ints.checkedCast(original.getFullContentOctets() - original.getBodyOctets());
         PropertyBuilder pBuilder = new PropertyBuilder(original.getProperties());
         pBuilder.setTextualLineCount(original.getTextualLineCount());
-        return new SimpleMailboxMessage(internalDate, size, bodyStartOctet, content, flags, pBuilder, mailboxId, original.getAttachments());
+        return new SimpleMailboxMessage(original.getMessageId(), internalDate, size, bodyStartOctet, content, flags, pBuilder, mailboxId, attachments);
     }
 
     private static SharedByteArrayInputStream copyFullContent(MailboxMessage original) throws MailboxException {
@@ -59,7 +66,7 @@ public class SimpleMailboxMessage extends DelegatingMailboxMessage {
         }
     }
 
-    private long uid;
+    private MessageUid uid;
     private final MailboxId mailboxId;
     private boolean answered;
     private boolean deleted;
@@ -70,10 +77,11 @@ public class SimpleMailboxMessage extends DelegatingMailboxMessage {
     private String[] userFlags;
     private long modSeq;
 
-    public SimpleMailboxMessage(Date internalDate, long size, int bodyStartOctet,
+    public SimpleMailboxMessage(MessageId messageId, Date internalDate, long size, int bodyStartOctet,
             SharedInputStream content, Flags flags,
             PropertyBuilder propertyBuilder, MailboxId mailboxId, List<MessageAttachment> attachments) {
         super(new SimpleMessage(
+                messageId,
                 content, size, internalDate, propertyBuilder.getSubType(),
                 propertyBuilder.getMediaType(),
                 bodyStartOctet,
@@ -87,10 +95,10 @@ public class SimpleMailboxMessage extends DelegatingMailboxMessage {
             this.userFlags = flags.getUserFlags();
     }
 
-    public SimpleMailboxMessage(Date internalDate, long size, int bodyStartOctet,
+    public SimpleMailboxMessage(MessageId messageId, Date internalDate, long size, int bodyStartOctet,
                                 SharedInputStream content, Flags flags,
                                 PropertyBuilder propertyBuilder, MailboxId mailboxId) {
-        this(internalDate, size, bodyStartOctet,
+        this(messageId, internalDate, size, bodyStartOctet,
                 content, flags,
                 propertyBuilder, mailboxId, ImmutableList.<MessageAttachment>of());
     }
@@ -104,7 +112,7 @@ public class SimpleMailboxMessage extends DelegatingMailboxMessage {
         return mailboxId;
     }
 
-    public long getUid() {
+    public MessageUid getUid() {
         return uid;
     }
 
@@ -140,7 +148,7 @@ public class SimpleMailboxMessage extends DelegatingMailboxMessage {
         this.modSeq = modSeq;
     }
 
-    public void setUid(long uid) {
+    public void setUid(MessageUid uid) {
         this.uid = uid;
     }
 
@@ -156,24 +164,16 @@ public class SimpleMailboxMessage extends DelegatingMailboxMessage {
 
     @Override
     public int hashCode() {
-        final int PRIME = 31;
-        int result = 1;
-        result = PRIME * result + (int) (uid ^ (uid >>> 32));
-        return result;
+        return Objects.hashCode(uid);
     }
 
     @Override
     public boolean equals(Object obj) {
-        if (this == obj)
-            return true;
-        if (obj == null)
-            return false;
-        if (getClass() != obj.getClass())
-            return false;
-        final SimpleMailboxMessage other = (SimpleMailboxMessage) obj;
-        if (uid != other.uid)
-            return false;
-        return true;
+        if (obj instanceof SimpleMailboxMessage) {
+            SimpleMailboxMessage other = (SimpleMailboxMessage) obj;
+            return Objects.equal(this.uid, other.uid);
+        }
+        return false;
     }
 
     public String toString() {

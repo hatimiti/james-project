@@ -28,18 +28,40 @@ import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
 import org.apache.james.mailbox.acl.MailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.model.MailboxConstants;
+import org.apache.james.mailbox.model.MessageId;
 import org.apache.james.mailbox.store.Authenticator;
+import org.apache.james.mailbox.store.Authorizator;
 import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
 import org.apache.james.mailbox.store.StoreMailboxManager;
 import org.apache.james.mailbox.store.StoreMessageManager;
+import org.apache.james.mailbox.store.event.DelegatingMailboxListener;
+import org.apache.james.mailbox.store.event.MailboxEventDispatcher;
 import org.apache.james.mailbox.store.mail.model.Mailbox;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 
 public class InMemoryMailboxManager extends StoreMailboxManager {
 
     @Inject
-    public InMemoryMailboxManager(MailboxSessionMapperFactory mailboxSessionMapperFactory, Authenticator authenticator, MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver, MessageParser messageParser) {
-        super(mailboxSessionMapperFactory, authenticator, locker, aclResolver, groupMembershipResolver, messageParser);
+    public InMemoryMailboxManager(MailboxSessionMapperFactory mailboxSessionMapperFactory, Authenticator authenticator, Authorizator authorizator,
+            MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver,
+            MessageParser messageParser, MessageId.Factory messageIdFactory, MailboxEventDispatcher dispatcher,
+            DelegatingMailboxListener delegatingMailboxListener) {
+        super(mailboxSessionMapperFactory, authenticator, authorizator, locker, aclResolver, groupMembershipResolver, messageParser, messageIdFactory,
+            MailboxConstants.DEFAULT_LIMIT_ANNOTATIONS_ON_MAILBOX, MailboxConstants.DEFAULT_LIMIT_ANNOTATION_SIZE, dispatcher,
+            delegatingMailboxListener);
+    }
+
+    public InMemoryMailboxManager(MailboxSessionMapperFactory mailboxSessionMapperFactory, Authenticator authenticator, Authorizator authorizator,
+                                  MailboxPathLocker locker, MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver,
+                                  MessageParser messageParser, MessageId.Factory messageIdFactory) {
+        super(mailboxSessionMapperFactory, authenticator, authorizator, locker, aclResolver, groupMembershipResolver, messageParser, messageIdFactory);
+    }
+
+    public InMemoryMailboxManager(MailboxSessionMapperFactory mailboxSessionMapperFactory, Authenticator authenticator,  Authorizator authorizator,
+            MailboxACLResolver aclResolver, GroupMembershipResolver groupMembershipResolver, MessageParser messageParser,
+            MessageId.Factory messageIdFactory, int limitOfAnnotations, int limitAnnotationSize) {
+        super(mailboxSessionMapperFactory, authenticator, authorizator, aclResolver, groupMembershipResolver, messageParser, messageIdFactory, limitOfAnnotations, limitAnnotationSize);
     }
 
     @Override
@@ -49,7 +71,7 @@ public class InMemoryMailboxManager extends StoreMailboxManager {
     
     @Override
     public EnumSet<MessageCapabilities> getSupportedMessageCapabilities() {
-        return EnumSet.of(MessageCapabilities.Attachment);
+        return EnumSet.of(MessageCapabilities.Attachment, MessageCapabilities.UniqueID);
     }
 
     @Override
@@ -63,6 +85,7 @@ public class InMemoryMailboxManager extends StoreMailboxManager {
             getGroupMembershipResolver(),
             getQuotaManager(),
             getQuotaRootResolver(),
-            getMessageParser());
+            getMessageParser(),
+            getMessageIdFactory());
     }
 }

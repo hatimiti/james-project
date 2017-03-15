@@ -33,21 +33,25 @@ import org.apache.james.imap.api.process.ImapProcessor;
 import org.apache.james.imap.api.process.ImapSession;
 import org.apache.james.imap.api.process.MailboxType;
 import org.apache.james.imap.api.process.MailboxTyper;
+import org.apache.james.imap.main.PathConverter;
 import org.apache.james.imap.message.request.ListRequest;
 import org.apache.james.imap.message.response.ListResponse;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.model.MailboxConstants;
+import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxMetaData;
 import org.apache.james.mailbox.model.MailboxMetaData.Children;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.model.MailboxQuery;
+import org.apache.james.metrics.api.MetricFactory;
 
 public class ListProcessor extends AbstractMailboxProcessor<ListRequest> {
 
-    public ListProcessor(ImapProcessor next, MailboxManager mailboxManager, StatusResponseFactory factory) {
-        super(ListRequest.class, next, mailboxManager, factory);
+    public ListProcessor(ImapProcessor next, MailboxManager mailboxManager, StatusResponseFactory factory,
+            MetricFactory metricFactory) {
+        super(ListRequest.class, next, mailboxManager, factory, metricFactory);
     }
 
     /**
@@ -151,6 +155,11 @@ public class ListProcessor extends AbstractMailboxProcessor<ListRequest> {
                     public MailboxPath getPath() {
                         return rootPath;
                     }
+
+                    @Override
+                    public MailboxId getId() {
+                        return null; //Will not be call in ListProcessor scope
+                    }
                     
                 });
             } else {
@@ -169,7 +178,7 @@ public class ListProcessor extends AbstractMailboxProcessor<ListRequest> {
                 if (isRelative) {
                     basePath = new MailboxPath(MailboxConstants.USER_NAMESPACE, user, finalReferencename);
                 } else {
-                    basePath = buildFullPath(session, finalReferencename);
+                    basePath = PathConverter.forSession(session).buildFullPath(finalReferencename);
                 }
 
                 results = getMailboxManager().search(new MailboxQuery(basePath, CharsetUtil.decodeModifiedUTF7(mailboxName), mailboxSession.getPathDelimiter()), mailboxSession);

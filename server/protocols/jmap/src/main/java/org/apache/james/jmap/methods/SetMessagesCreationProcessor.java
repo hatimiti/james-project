@@ -19,19 +19,18 @@
 
 package org.apache.james.jmap.methods;
 
+import static org.apache.james.jmap.methods.Method.JMAP_PREFIX;
+
 import java.io.IOException;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import javax.inject.Inject;
 import javax.mail.Flags;
 import javax.mail.MessagingException;
-import javax.mail.internet.SharedInputStream;
 import javax.mail.util.SharedByteArrayInputStream;
 
 import org.apache.james.jmap.exceptions.AttachmentsNotFoundException;
@@ -43,7 +42,7 @@ import org.apache.james.jmap.model.CreationMessage;
 import org.apache.james.jmap.model.CreationMessageId;
 import org.apache.james.jmap.model.Message;
 import org.apache.james.jmap.model.MessageFactory;
-import org.apache.james.jmap.model.MessageId;
+import org.apache.james.jmap.model.MessageFactory.MetaDataWithContent;
 import org.apache.james.jmap.model.MessageProperties;
 import org.apache.james.jmap.model.MessageProperties.MessageProperty;
 import org.apache.james.jmap.model.SetError;
@@ -57,27 +56,26 @@ import org.apache.james.jmap.send.MailMetadata;
 import org.apache.james.jmap.send.MailSpool;
 import org.apache.james.jmap.utils.SystemMailboxesProvider;
 import org.apache.james.lifecycle.api.LifecycleUtil;
+import org.apache.james.mailbox.AttachmentManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.exception.AttachmentNotFoundException;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.exception.MailboxNotFoundException;
-import org.apache.james.mailbox.model.MailboxId;
-import org.apache.james.mailbox.model.MailboxPath;
-import org.apache.james.mailbox.store.MailboxSessionMapperFactory;
-import org.apache.james.mailbox.store.mail.AttachmentMapper;
-import org.apache.james.mailbox.store.mail.AttachmentMapperFactory;
-import org.apache.james.mailbox.store.mail.MessageMapper;
-import org.apache.james.mailbox.store.mail.model.AttachmentId;
-import org.apache.james.mailbox.store.mail.model.Mailbox;
-import org.apache.james.mailbox.store.mail.model.MailboxMessage;
-import org.apache.james.mailbox.store.mail.model.MessageAttachment;
-import org.apache.james.mailbox.store.mail.model.impl.Cid;
-import org.apache.james.mailbox.store.mail.model.impl.PropertyBuilder;
-import org.apache.james.mailbox.store.mail.model.impl.SimpleMailboxMessage;
+import org.apache.james.mailbox.model.AttachmentId;
+import org.apache.james.mailbox.model.Cid;
+import org.apache.james.mailbox.model.ComposedMessageId;
+import org.apache.james.mailbox.model.MessageAttachment;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
+import org.apache.james.util.OptionalConverter;
 import org.apache.mailet.Mail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.github.fge.lambdas.Throwing;
+import com.github.fge.lambdas.functions.ThrowingFunction;
+import com.github.fge.lambdas.predicates.ThrowingPredicate;
 import com.github.steveash.guavate.Guavate;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -87,38 +85,39 @@ import com.google.common.collect.ImmutableList;
 public class SetMessagesCreationProcessor implements SetMessagesProcessor {
 
     private static final Logger LOG = LoggerFactory.getLogger(SetMailboxesCreationProcessor.class);
-    private final MailboxSessionMapperFactory mailboxSessionMapperFactory;
     private final MIMEMessageConverter mimeMessageConverter;
     private final MailSpool mailSpool;
     private final MailFactory mailFactory;
     private final MessageFactory messageFactory;
     private final SystemMailboxesProvider systemMailboxesProvider;
-    private AttachmentMapperFactory attachmentMapperFactory;
-
+    private final AttachmentManager attachmentManager;
+    private final MetricFactory metricFactory;
     
     @VisibleForTesting @Inject
-    SetMessagesCreationProcessor(MailboxSessionMapperFactory mailboxSessionMapperFactory,
-                                 MIMEMessageConverter mimeMessageConverter,
+    SetMessagesCreationProcessor(MIMEMessageConverter mimeMessageConverter,
                                  MailSpool mailSpool,
                                  MailFactory mailFactory,
                                  MessageFactory messageFactory,
                                  SystemMailboxesProvider systemMailboxesProvider,
-                                 AttachmentMapperFactory attachmentMapperFactory) {
-        this.mailboxSessionMapperFactory = mailboxSessionMapperFactory;
+                                 AttachmentManager attachmentManager, MetricFactory metricFactory) {
         this.mimeMessageConverter = mimeMessageConverter;
         this.mailSpool = mailSpool;
         this.mailFactory = mailFactory;
         this.messageFactory = messageFactory;
         this.systemMailboxesProvider = systemMailboxesProvider;
-        this.attachmentMapperFactory = attachmentMapperFactory;
+        this.attachmentManager = attachmentManager;
+        this.metricFactory = metricFactory;
     }
 
     @Override
     public SetMessagesResponse process(SetMessagesRequest request, MailboxSession mailboxSession) {
+        TimeMetric timeMetric = metricFactory.timer(JMAP_PREFIX + "SetMessageCreationProcessor");
+
         Builder responseBuilder = SetMessagesResponse.builder();
         request.getCreate()
-            .stream()
             .forEach(create -> handleCreate(create, responseBuilder, mailboxSession));
+
+        timeMetric.stopAndPublish();
         return responseBuilder.build();
     }
 
@@ -177,7 +176,7 @@ public class SetMessagesCreationProcessor implements SetMessagesProcessor {
         }
     }
     
-    private void validateImplementedFeature(CreationMessageEntry entry, MailboxSession session) throws MailboxNotImplementedException {
+    private void validateImplementedFeature(CreationMessageEntry entry, MailboxSession session) throws MailboxException, MailboxNotImplementedException {
         if (isAppendToMailboxWithRole(Role.DRAFTS, entry.getValue(), session)) {
             throw new MailboxNotImplementedException("Drafts saving is not implemented");
         }
@@ -197,24 +196,26 @@ public class SetMessagesCreationProcessor implements SetMessagesProcessor {
     @VisibleForTesting void assertAttachmentsExist(CreationMessageEntry entry, MailboxSession session) throws AttachmentsNotFoundException, MailboxException {
         List<Attachment> attachments = entry.getValue().getAttachments();
         if (!attachments.isEmpty()) {
-            AttachmentMapper attachmentMapper = attachmentMapperFactory.getAttachmentMapper(session);
-            List<BlobId> notFounds = listAttachmentsNotFound(attachments, attachmentMapper);
+            List<BlobId> notFounds = listAttachmentsNotFound(attachments, session);
             if (!notFounds.isEmpty()) {
                 throw new AttachmentsNotFoundException(notFounds);
             }
         }
     }
 
-    private List<BlobId> listAttachmentsNotFound(List<Attachment> attachments, AttachmentMapper attachmentMapper) {
+    private List<BlobId> listAttachmentsNotFound(List<Attachment> attachments, MailboxSession session) throws MailboxException {
+        ThrowingPredicate<Attachment> notExists = attachment -> {
+            try {
+                attachmentManager.getAttachment(getAttachmentId(attachment), session);
+                return false;
+            } catch (AttachmentNotFoundException e) {
+                return true;
+            }
+        };
         return attachments.stream()
-            .flatMap(attachment -> {
-                try {
-                    attachmentMapper.getAttachment(getAttachmentId(attachment));
-                    return Stream.of();
-                } catch (AttachmentNotFoundException e) {
-                    return Stream.of(attachment.getBlobId());
-                }
-            }).collect(Guavate.toImmutableList());
+            .filter(Throwing.predicate(notExists).sneakyThrow())
+            .map(Attachment::getBlobId)
+            .collect(Guavate.toImmutableList());
     }
 
     private AttachmentId getAttachmentId(Attachment attachment) {
@@ -238,36 +239,22 @@ public class SetMessagesCreationProcessor implements SetMessagesProcessor {
 
     
     private MessageWithId handleOutboxMessages(CreationMessageEntry entry, MailboxSession session) throws MailboxException, MessagingException {
-        Mailbox outbox = getMailboxWithRole(session, Role.OUTBOX).orElseThrow(() -> new MailboxNotFoundException(Role.OUTBOX.serialize()));
+        MessageManager outbox = getMailboxWithRole(session, Role.OUTBOX).orElseThrow(() -> new MailboxNotFoundException(Role.OUTBOX.serialize()));
         if (!isRequestForSending(entry.getValue(), session)) {
             throw new IllegalStateException("Messages for everything but outbox should have been filtered earlier");
         }
-        Function<Long, MessageId> idGenerator = uid -> generateMessageId(session, outbox, uid);
-        return createMessageInOutboxAndSend(entry, session, outbox, idGenerator);
+        MetaDataWithContent newMessage = createMessageInOutbox(entry, outbox, session);
+        return sendMessage(entry.getCreationId(), newMessage, session);
     }
     
-    @VisibleForTesting
-    protected MessageWithId createMessageInOutboxAndSend(CreationMessageEntry createdEntry,
-                                                           MailboxSession session,
-                                                           Mailbox outbox, Function<Long, MessageId> buildMessageIdFromUid) throws MailboxException, MessagingException {
-        
-        CreationMessageId creationId = createdEntry.getCreationId();
-        MessageMapper messageMapper = mailboxSessionMapperFactory.createMessageMapper(session);
-        MailboxMessage newMailboxMessage = buildMailboxMessage(session, createdEntry, outbox);
-        messageMapper.add(outbox, newMailboxMessage);
-        Message jmapMessage = messageFactory.fromMailboxMessage(newMailboxMessage, newMailboxMessage.getAttachments(), buildMessageIdFromUid);
-        sendMessage(newMailboxMessage, jmapMessage, session);
-        return new MessageWithId(creationId, jmapMessage);
-    }
-    
-    private boolean isAppendToMailboxWithRole(Role role, CreationMessage entry, MailboxSession mailboxSession) {
+    private boolean isAppendToMailboxWithRole(Role role, CreationMessage entry, MailboxSession mailboxSession) throws MailboxException {
         return getMailboxWithRole(mailboxSession, role)
                 .map(box -> entry.isIn(box))
                 .orElse(false);
     }
 
-    private Optional<Mailbox> getMailboxWithRole(MailboxSession mailboxSession, Role role) {
-        return systemMailboxesProvider.listMailboxes(role, mailboxSession).findFirst();
+    private Optional<MessageManager> getMailboxWithRole(MailboxSession mailboxSession, Role role) throws MailboxException {
+        return systemMailboxesProvider.getMailboxByRole(role, mailboxSession).findFirst();
     }
     
     private SetError buildSetErrorFromValidationResult(List<ValidationResult> validationErrors) {
@@ -292,55 +279,55 @@ public class SetMessagesCreationProcessor implements SetMessagesProcessor {
                 .collect(Collectors.toSet());
     }
 
-    private boolean isRequestForSending(CreationMessage creationMessage, MailboxSession session) {
+    private boolean isRequestForSending(CreationMessage creationMessage, MailboxSession session) throws MailboxException {
         return isAppendToMailboxWithRole(Role.OUTBOX, creationMessage, session);
     }
     
-    private MessageId generateMessageId(MailboxSession session, Mailbox outbox, long uid) {
-        MailboxPath outboxPath = new MailboxPath(session.getPersonalSpace(), session.getUser().getUserName(), outbox.getName());
-        return new MessageId(session.getUser(), outboxPath, uid);
-    }
-
-    private MailboxMessage buildMailboxMessage(MailboxSession session, MessageWithId.CreationMessageEntry createdEntry, Mailbox outbox) throws MailboxException {
+    private MetaDataWithContent createMessageInOutbox(MessageWithId.CreationMessageEntry createdEntry, MessageManager outbox, MailboxSession session) throws MailboxException {
         ImmutableList<MessageAttachment> messageAttachments = getMessageAttachments(session, createdEntry.getValue().getAttachments());
         byte[] messageContent = mimeMessageConverter.convert(createdEntry, messageAttachments);
-        SharedInputStream content = new SharedByteArrayInputStream(messageContent);
-        long size = messageContent.length;
-        int bodyStartOctet = 0;
-
-        Flags flags = getMessageFlags(createdEntry.getValue());
-        PropertyBuilder propertyBuilder = buildPropertyBuilder();
-        MailboxId mailboxId = outbox.getMailboxId();
+        SharedByteArrayInputStream content = new SharedByteArrayInputStream(messageContent);
         Date internalDate = Date.from(createdEntry.getValue().getDate().toInstant());
+        Flags flags = getMessageFlags(createdEntry.getValue());
 
-        return new SimpleMailboxMessage(internalDate, size,
-                bodyStartOctet, content, flags, propertyBuilder, mailboxId, messageAttachments);
+        ComposedMessageId message = outbox.appendMessage(content, internalDate, session, flags.contains(Flags.Flag.RECENT), flags);
+
+        return MetaDataWithContent.builder()
+                .uid(message.getUid())
+                .flags(flags)
+                .size(messageContent.length)
+                .internalDate(internalDate)
+                .sharedContent(content)
+                .attachments(messageAttachments)
+                .mailboxId(outbox.getId())
+                .messageId(message.getMessageId())
+                .build();
     }
 
     private ImmutableList<MessageAttachment> getMessageAttachments(MailboxSession session, ImmutableList<Attachment> attachments) throws MailboxException {
-        AttachmentMapper attachmentMapper = attachmentMapperFactory.getAttachmentMapper(session);
+        ThrowingFunction<Attachment, Optional<MessageAttachment>> toMessageAttachment = att -> messageAttachment(session, att);
         return attachments.stream()
-            .map(att -> messageAttachment(attachmentMapper, att))
+            .map(Throwing.function(toMessageAttachment).sneakyThrow())
+            .flatMap(OptionalConverter::toStream)
             .collect(Guavate.toImmutableList());
     }
 
-    private MessageAttachment messageAttachment(AttachmentMapper attachmentMapper, Attachment attachment) {
+    private Optional<MessageAttachment> messageAttachment(MailboxSession session, Attachment attachment) throws MailboxException {
         try {
-            return MessageAttachment.builder()
-                    .attachment(attachmentMapper.getAttachment(AttachmentId.from(attachment.getBlobId().getRawValue())))
+            return Optional.of(MessageAttachment.builder()
+                    .attachment(attachmentManager.getAttachment(AttachmentId.from(attachment.getBlobId().getRawValue()), session))
                     .name(attachment.getName().orElse(null))
                     .cid(attachment.getCid().map(Cid::from).orElse(null))
                     .isInline(attachment.isIsInline())
-                    .build();
+                    .build());
         } catch (AttachmentNotFoundException e) {
             // should not happen (checked before)
             LOG.error(String.format("Attachment %s not found", attachment.getBlobId()), e);
-            return null;
+            return Optional.empty();
+        } catch (IllegalStateException e) {
+            LOG.error(String.format("Attachment %s is not well-formed", attachment.getBlobId()), e);
+            return Optional.empty();
         }
-    }
-
-    private PropertyBuilder buildPropertyBuilder() {
-        return new PropertyBuilder();
     }
 
     private Flags getMessageFlags(CreationMessage message) {
@@ -360,8 +347,14 @@ public class SetMessagesCreationProcessor implements SetMessagesProcessor {
         return result;
     }
 
-    private void sendMessage(MailboxMessage mailboxMessage, Message jmapMessage, MailboxSession session) throws MessagingException {
-        Mail mail = buildMessage(mailboxMessage, jmapMessage);
+    private MessageWithId sendMessage(CreationMessageId creationId, MetaDataWithContent message, MailboxSession session) throws MailboxException, MessagingException {
+        Message jmapMessage = messageFactory.fromMetaDataWithContent(message);
+        sendMessage(message, jmapMessage, session);
+        return new MessageWithId(creationId, jmapMessage);
+    }
+    
+    private void sendMessage(MetaDataWithContent message, Message jmapMessage, MailboxSession session) throws MessagingException {
+        Mail mail = buildMessage(message, jmapMessage);
         try {
             MailMetadata metadata = new MailMetadata(jmapMessage.getId(), session.getUser().getUserName());
             mailSpool.send(mail, metadata);
@@ -370,9 +363,9 @@ public class SetMessagesCreationProcessor implements SetMessagesProcessor {
         }
     }
 
-    private Mail buildMessage(MailboxMessage mailboxMessage, Message jmapMessage) throws MessagingException {
+    private Mail buildMessage(MetaDataWithContent message, Message jmapMessage) throws MessagingException {
         try {
-            return mailFactory.build(mailboxMessage, jmapMessage);
+            return mailFactory.build(message, jmapMessage);
         } catch (IOException e) {
             throw new MessagingException("error building message to send", e);
         }

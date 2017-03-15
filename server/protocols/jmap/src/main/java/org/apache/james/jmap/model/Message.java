@@ -20,6 +20,8 @@
 package org.apache.james.jmap.model;
 
 import java.time.ZonedDateTime;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,8 +29,11 @@ import java.util.function.Predicate;
 
 import org.apache.james.jmap.methods.GetMessagesMethod;
 import org.apache.james.jmap.methods.JmapResponseWriterImpl;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.mailbox.model.MessageId;
 
 import com.fasterxml.jackson.annotation.JsonFilter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import com.google.common.annotations.VisibleForTesting;
@@ -50,7 +55,7 @@ public class Message {
         private MessageId id;
         private BlobId blobId;
         private String threadId;
-        private ImmutableList<String> mailboxIds;
+        private ImmutableList<MailboxId> mailboxIds;
         private String inReplyToMessageId;
         private boolean isUnread;
         private boolean isFlagged;
@@ -95,11 +100,17 @@ public class Message {
             return this;
         }
 
-        public Builder mailboxId(String mailboxId) {
-            return this.mailboxIds(ImmutableList.of(mailboxId));
+        @JsonIgnore
+        public Builder mailboxId(MailboxId mailboxId) {
+            return this.fluentMailboxIds(mailboxId);
         }
 
-        public Builder mailboxIds(List<String> mailboxIds) {
+        @JsonIgnore
+        public Builder fluentMailboxIds(MailboxId... mailboxIds) {
+            return this.mailboxIds(Arrays.asList((mailboxIds)));
+        }
+
+        public Builder mailboxIds(Collection<MailboxId> mailboxIds) {
             this.mailboxIds = ImmutableList.copyOf(mailboxIds);
             return this;
         }
@@ -211,7 +222,7 @@ public class Message {
             ImmutableList<Attachment> attachments = this.attachments.build();
             ImmutableMap<BlobId, SubMessage> attachedMessages = this.attachedMessages.build();
             Preconditions.checkState(areAttachedMessagesKeysInAttachments(attachments, attachedMessages), "'attachedMessages' keys must be in 'attachements'");
-            boolean hasAttachment = !attachments.isEmpty();
+            boolean hasAttachment = hasAttachment(attachments);
 
             return new Message(id, blobId, threadId, mailboxIds, Optional.ofNullable(inReplyToMessageId), isUnread, isFlagged, isAnswered, isDraft, hasAttachment, headers, Optional.ofNullable(from),
                     to.build(), cc.build(), bcc.build(), replyTo.build(), subject, date, size, preview, Optional.ofNullable(textBody), Optional.ofNullable(htmlBody), attachments, attachedMessages);
@@ -231,10 +242,17 @@ public class Message {
         };
     }
 
+    private static boolean hasAttachment(List<Attachment> attachments) {
+        return attachments.stream()
+                .filter(attachment -> !attachment.isIsInline())
+                .findAny()
+                .isPresent();
+    }
+
     private final MessageId id;
     private final BlobId blobId;
     private final String threadId;
-    private final ImmutableList<String> mailboxIds;
+    private final ImmutableList<MailboxId> mailboxIds;
     private final Optional<String> inReplyToMessageId;
     private final boolean isUnread;
     private final boolean isFlagged;
@@ -257,7 +275,7 @@ public class Message {
     private final ImmutableList<Attachment> attachments;
     private final ImmutableMap<BlobId, SubMessage> attachedMessages;
 
-    @VisibleForTesting Message(MessageId id, BlobId blobId, String threadId, ImmutableList<String> mailboxIds, Optional<String> inReplyToMessageId, boolean isUnread, boolean isFlagged, boolean isAnswered, boolean isDraft, boolean hasAttachment, ImmutableMap<String, String> headers, Optional<Emailer> from,
+    @VisibleForTesting Message(MessageId id, BlobId blobId, String threadId, ImmutableList<MailboxId> mailboxIds, Optional<String> inReplyToMessageId, boolean isUnread, boolean isFlagged, boolean isAnswered, boolean isDraft, boolean hasAttachment, ImmutableMap<String, String> headers, Optional<Emailer> from,
             ImmutableList<Emailer> to, ImmutableList<Emailer> cc, ImmutableList<Emailer> bcc, ImmutableList<Emailer> replyTo, String subject, ZonedDateTime date, long size, String preview, Optional<String> textBody, Optional<String> htmlBody, ImmutableList<Attachment> attachments,
             ImmutableMap<BlobId, SubMessage> attachedMessages) {
         this.id = id;
@@ -298,7 +316,7 @@ public class Message {
         return threadId;
     }
 
-    public ImmutableList<String> getMailboxIds() {
+    public ImmutableList<MailboxId> getMailboxIds() {
         return mailboxIds;
     }
 

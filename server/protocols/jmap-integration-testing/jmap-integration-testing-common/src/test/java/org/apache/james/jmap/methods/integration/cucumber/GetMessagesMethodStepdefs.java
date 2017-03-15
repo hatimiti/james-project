@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.ByteArrayInputStream;
 import java.time.ZonedDateTime;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -38,13 +39,22 @@ import javax.mail.Flags;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.fluent.Request;
+import org.apache.james.jmap.DefaultMailboxes;
 import org.apache.james.jmap.methods.integration.cucumber.util.TableRow;
 import org.apache.james.mailbox.model.MailboxConstants;
+import org.apache.james.mailbox.model.MailboxId;
 import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.mailbox.model.MessageId;
+import org.apache.james.modules.MailboxProbeImpl;
+import org.apache.james.utils.JmapGuiceProbe;
 import org.javatuples.Pair;
 
+import com.github.fge.lambdas.Throwing;
+import com.github.steveash.guavate.Guavate;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.DocumentContext;
 import com.jayway.jsonpath.JsonPath;
@@ -55,6 +65,7 @@ import cucumber.api.java.en.Given;
 import cucumber.api.java.en.Then;
 import cucumber.api.java.en.When;
 import cucumber.runtime.java.guice.ScenarioScoped;
+import net.minidev.json.JSONArray;
 
 @ScenarioScoped
 public class GetMessagesMethodStepdefs {
@@ -70,37 +81,68 @@ public class GetMessagesMethodStepdefs {
 
     private final MainStepdefs mainStepdefs;
     private final UserStepdefs userStepdefs;
-
+    private final Map<String, MessageId> messageIdsByName;
+    
     private HttpResponse response;
     private DocumentContext jsonPath;
-
+    private List<MessageId> requestedMessageIds;
+    
     @Inject
     private GetMessagesMethodStepdefs(MainStepdefs mainStepdefs, UserStepdefs userStepdefs) {
         this.mainStepdefs = mainStepdefs;
         this.userStepdefs = userStepdefs;
+        this.messageIdsByName = new HashMap<>();
     }
 
-    @Given("^the user has a message in \"([^\"]*)\" mailbox with subject \"([^\"]*)\" and content \"([^\"]*)\"$")
-    public void appendMessage(String mailbox, String subject, String content) throws Throwable {
-        appendMessage(mailbox, ContentType.noContentType(), subject, content, NO_HEADERS);
+    public MessageId getMessageId(String name) {
+        return messageIdsByName.get(name);
     }
 
-    @Given("^the user has a message in \"([^\"]*)\" mailbox with content-type \"([^\"]*)\" subject \"([^\"]*)\" and content \"([^\"]*)\"$")
-    public void appendMessage(String mailbox, String contentType, String subject, String content) throws Throwable {
-        appendMessage(mailbox, ContentType.from(contentType), subject, content, NO_HEADERS);
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" and \"([^\"]*)\" mailboxes with subject \"([^\"]*)\", content \"([^\"]*)\"$")
+    public void appendMessageInTwoMailboxes(String messageName, String mailbox1, String mailbox2, String subject, String content) throws Throwable {
+        MessageId id = appendMessage(mailbox1, ContentType.noContentType(), subject, content, NO_HEADERS);
+        MailboxId mailboxId1 = mainStepdefs.jmapServer.getProbe(MailboxProbeImpl.class).getMailbox(MailboxConstants.USER_NAMESPACE, userStepdefs.lastConnectedUser, mailbox1).getMailboxId();
+        MailboxId mailboxId2 = mainStepdefs.jmapServer.getProbe(MailboxProbeImpl.class).getMailbox(MailboxConstants.USER_NAMESPACE, userStepdefs.lastConnectedUser, mailbox2).getMailboxId();
+
+        mainStepdefs.jmapServer.getProbe(JmapGuiceProbe.class).setInMailboxes(id, userStepdefs.lastConnectedUser, mailboxId1, mailboxId2);
+        messageIdsByName.put(messageName, id);
     }
 
-    @Given("^the user has a message in \"([^\"]*)\" mailbox with subject \"([^\"]*)\" and content \"([^\"]*)\" with headers$")
-    public void appendMessage(String mailbox, String subject, String content, DataTable headers) throws Throwable {
-        appendMessage(mailbox, ContentType.noContentType(), subject, content, Optional.of(headers.asMap(String.class, String.class)));
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with subject \"([^\"]*)\", content \"([^\"]*)\"$")
+    public void appendMessage(String messageName, String mailbox, String subject, String content) throws Throwable {
+        MessageId id = appendMessage(mailbox, ContentType.noContentType(), subject, content, NO_HEADERS);
+        messageIdsByName.put(messageName, id);
     }
 
-    private void appendMessage(String mailbox, ContentType contentType, String subject, String content, Optional<Map<String, String>> headers) throws Exception {
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with content-type \"([^\"]*)\" subject \"([^\"]*)\", content \"([^\"]*)\"$")
+    public void appendMessage(String messageName, String mailbox, String contentType, String subject, String content) throws Throwable {
+        MessageId id = appendMessage(mailbox, ContentType.from(contentType), subject, content, NO_HEADERS);
+        messageIdsByName.put(messageName, id);
+    }
+
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with subject \"([^\"]*)\", content \"([^\"]*)\", headers$")
+    public void appendMessage(String messageName, String mailbox, String subject, String content, DataTable headers) throws Throwable {
+        MessageId id = appendMessage(mailbox, ContentType.noContentType(), subject, content, Optional.of(headers.asMap(String.class, String.class)));
+        messageIdsByName.put(messageName, id);
+    }
+
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox, composed of a multipart with inlined text part and inlined html part$")
+    public void appendMessageFromFileInlinedMultipart(String messageName, String mailbox) throws Throwable {
         ZonedDateTime dateTime = ZonedDateTime.parse("2014-10-30T14:12:00Z");
-        mainStepdefs.jmapServer.serverProbe().appendMessage(userStepdefs.lastConnectedUser, 
+        MessageId id = mainStepdefs.jmapServer.getProbe(MailboxProbeImpl.class).appendMessage(userStepdefs.lastConnectedUser,
+                    new MailboxPath(MailboxConstants.USER_NAMESPACE, userStepdefs.lastConnectedUser, mailbox),
+                    ClassLoader.getSystemResourceAsStream("eml/inlinedMultipart.eml"),
+                    Date.from(dateTime.toInstant()), false, new Flags())
+                .getMessageId();
+        messageIdsByName.put(messageName, id);
+    }
+
+    private MessageId appendMessage(String mailbox, ContentType contentType, String subject, String content, Optional<Map<String, String>> headers) throws Exception {
+        ZonedDateTime dateTime = ZonedDateTime.parse("2014-10-30T14:12:00Z");
+        return mainStepdefs.jmapServer.getProbe(MailboxProbeImpl.class).appendMessage(userStepdefs.lastConnectedUser, 
                 new MailboxPath(MailboxConstants.USER_NAMESPACE, userStepdefs.lastConnectedUser, mailbox),
                 new ByteArrayInputStream(message(contentType, subject, content, headers).getBytes(Charsets.UTF_8)), 
-                Date.from(dateTime.toInstant()), false, new Flags());
+                Date.from(dateTime.toInstant()), false, new Flags()).getMessageId();
     }
 
     private String message(ContentType contentType, String subject, String content, Optional<Map<String,String>> headers) {
@@ -121,27 +163,54 @@ public class GetMessagesMethodStepdefs {
                 .collect(Collectors.joining("\r\n", "", "\r\n"));
     }
 
-    @Given("^the user has a message in \"([^\"]*)\" mailbox with two attachments$")
-    public void appendHtmlMessageWithTwoAttachments(String mailbox) throws Throwable {
-        appendMessage("eml/twoAttachments.eml");
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with two attachments$")
+    public void appendHtmlMessageWithTwoAttachments(String messageName, String mailbox) throws Throwable {
+        appendMessage(messageName, "eml/twoAttachments.eml");
     }
 
-    @Given("^the user has a message in \"([^\"]*)\" mailbox with two attachments in text$")
-    public void appendTextMessageWithTwoAttachments(String arg1) throws Throwable {
-        appendMessage("eml/twoAttachmentsTextPlain.eml");
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with two attachments in text$")
+    public void appendTextMessageWithTwoAttachments(String messageName, String mailbox) throws Throwable {
+        appendMessage(messageName, "eml/twoAttachmentsTextPlain.eml");
     }
 
-    @Given("^the user has a multipart message in \"([^\"]*)\" mailbox$")
-    public void appendMultipartMessageWithOneAttachments(String arg1) throws Throwable {
-        appendMessage("eml/htmlAndTextMultipartWithOneAttachment.eml");
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with two same attachments in text$")
+    public void appendTextMessageWithTwoSameAttachments(String messageName, String mailbox) throws Throwable {
+        appendMessage(messageName, "eml/twoSameAttachments.eml");
     }
 
-    private void appendMessage(String emlFileName) throws Exception {
+    @Given("^the user has a multipart message \"([^\"]*)\" in \"([^\"]*)\" mailbox$")
+    public void appendMultipartMessageWithOneAttachments(String messageName, String arg1) throws Throwable {
+        appendMessage(messageName, "eml/htmlAndTextMultipartWithOneAttachment.eml");
+    }
+
+    @Given("^the user has a multipart/related message \"([^\"]*)\" in \"([^\"]*)\" mailbox$")
+    public void appendMultipartRelated(String messageName, String mailbox) throws Throwable {
+        appendMessage(messageName, "eml/multipartRelated.eml");
+    }
+
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox beginning by a long line$")
+    public void appendMessageBeginningByALongLine(String messageName, String mailbox) throws Throwable {
+        appendMessage(messageName, "eml/longLine.eml");
+    }
+
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with plain/text inline attachment$")
+    public void appendMessageWithPlainTextInlineAttachment(String messageName, String mailbox) throws Throwable {
+        appendMessage(messageName, "eml/embeddedMultipartWithInlineTextAttachment.eml");
+    }
+
+    @Given("^the user has a message \"([^\"]*)\" in \"([^\"]*)\" mailbox with text in main multipart and html in inner multipart$")
+    public void appendMessageWithTextInMainMultipartAndHtmlInInnerMultipart(String messageName, String mailbox) throws Throwable {
+        appendMessage(messageName, "eml/textInMainMultipartHtmlInInnerMultipart.eml");
+    }
+
+    private void appendMessage(String messageName, String emlFileName) throws Exception {
         ZonedDateTime dateTime = ZonedDateTime.parse("2014-10-30T14:12:00Z");
-        mainStepdefs.jmapServer.serverProbe().appendMessage(userStepdefs.lastConnectedUser, 
-                new MailboxPath(MailboxConstants.USER_NAMESPACE, userStepdefs.lastConnectedUser, "inbox"),
-                ClassLoader.getSystemResourceAsStream(emlFileName), 
-                Date.from(dateTime.toInstant()), false, new Flags());
+        MessageId id = mainStepdefs.jmapServer.getProbe(MailboxProbeImpl.class).appendMessage(userStepdefs.lastConnectedUser,
+                new MailboxPath(MailboxConstants.USER_NAMESPACE, userStepdefs.lastConnectedUser, DefaultMailboxes.INBOX),
+                ClassLoader.getSystemResourceAsStream(emlFileName),
+                Date.from(dateTime.toInstant()), false, new Flags())
+                .getMessageId();
+        messageIdsByName.put(messageName, id);
     }
 
     @When("^the user ask for messages using its accountId$")
@@ -165,30 +234,51 @@ public class GetMessagesMethodStepdefs {
     }
 
     @When("^the user ask for messages \"(.*?)\"$")
-    public void postWithAListOfIds(String ids) throws Throwable {
-        post("[[\"getMessages\", {\"ids\": " + ids + "}, \"#0\"]]");
+    public void postWithAListOfIds(List<String> ids) throws Throwable {
+        requestedMessageIds = ids.stream()
+                .map(messageIdsByName::get)
+                .collect(Guavate.toImmutableList());
+        askMessages(requestedMessageIds);
     }
 
-    @When("^the user is getting his messages with parameters$")
-    public void postWithParameters(DataTable parameters) throws Throwable {
-        String payload = 
-                parameters.asMap(String.class, String.class)
-                    .entrySet()
-                    .stream()
-                    .map(this::entryToPair)
-                    .map(this::quoteIndex)
-                    .map(this::joinKeyValue)
-                    .collect(Collectors.joining(",", "{", "}"));
-        
-        post("[[\"getMessages\", " + payload + ", \"#0\"]]");
+    @When("^the user ask for an unknown message$")
+    public void requestUnknownMessage() throws Throwable {
+        askMessages(ImmutableList.of(mainStepdefs.messageIdFactory.generate()));
+    }
+    
+    private void askMessages(List<MessageId> messageIds) throws Exception {
+        requestedMessageIds = messageIds;
+        String serializedIds = requestedMessageIds.stream()
+                .map(MessageId::serialize)
+                .map(toJsonString())
+                .collect(Collectors.joining(",", "[", "]" ));
+        post("[[\"getMessages\", {\"ids\": " + serializedIds + "}, \"#0\"]]");
+    }
+
+    private Function<? super String, ? extends String> toJsonString() {
+        return string -> "\"" + string + "\"";
+    }
+
+    @When("^the user is getting messages \"(.*?)\" with properties \"(.*?)\"$")
+    public void postWithParameters(List<String> ids, List<String> properties) throws Throwable {
+        requestedMessageIds = ids.stream()
+                .map(messageIdsByName::get)
+                .collect(Guavate.toImmutableList());
+
+        String serializedIds = requestedMessageIds.stream()
+                .map(MessageId::serialize)
+                .map(toJsonString())
+                .collect(Collectors.joining(",", "[", "]" ));
+
+        String serializedProperties = properties.stream()
+                .map(toJsonString())
+                .collect(Collectors.joining(",", "[", "]" ));
+
+        post("[[\"getMessages\", {\"ids\": " + serializedIds + ", \"properties\": " + serializedProperties + "}, \"#0\"]]");
     }
 
     private Pair<String, String> entryToPair(Map.Entry<String, String> entry) {
         return Pair.with(entry.getKey(), entry.getValue());
-    }
-
-    private Pair<String, String> quoteIndex(Pair<String, String> pair) {
-        return Pair.with(String.format("\"%s\"", pair.getValue0()), pair.getValue1());
     }
 
     private String joinKeyValue(Pair<String, String> pair) {
@@ -233,24 +323,50 @@ public class GetMessagesMethodStepdefs {
         assertThat(jsonPath.<String>read(ARGUMENTS + ".description")).isEqualTo(description);
     }
 
-    @Then("^the notFound list should contains \"([^\"]*)\"$")
+    @Then("^the notFound list should contain \"([^\"]*)\"$")
     public void assertNotFoundListContains(String ids) throws Throwable {
         assertThat(jsonPath.<List<String>>read(ARGUMENTS + ".notFound")).contains(ids);
     }
 
+    @Then("^the notFound list should contain the requested message id$")
+    public void assertNotFoundListContainsRequestedMessages() throws Throwable {
+        ImmutableList<String> elements = requestedMessageIds.stream().map(MessageId::serialize).collect(Guavate.toImmutableList());
+        assertThat(jsonPath.<List<String>>read(ARGUMENTS + ".notFound")).containsExactlyElementsOf(elements);
+    }
+
+    
     @Then("^the list should contain (\\d+) message$")
     public void assertListContains(int numberOfMessages) throws Throwable {
         assertThat(jsonPath.<List<String>>read(ARGUMENTS + ".list")).hasSize(numberOfMessages);
     }
     
     @Then("^the id of the message is \"([^\"]*)\"$")
-    public void assertIdOfTheFirstMessage(String id) throws Throwable {
-        assertThat(jsonPath.<String>read(FIRST_MESSAGE + ".id")).isEqualTo(id);
+    public void assertIdOfTheFirstMessage(String messageName) throws Throwable {
+        MessageId id = messageIdsByName.get(messageName);
+        assertThat(jsonPath.<String>read(FIRST_MESSAGE + ".id")).isEqualTo(id.serialize());
+    }
+
+    @Then("^the message is in \"([^\"]*)\" mailboxes")
+    public void assertMailboxIdsOfTheFirstMessage(String mailboxIds) throws Throwable {
+        List<String> values = Splitter.on(",")
+            .splitToList(mailboxIds).stream()
+            .map(Throwing.function(name -> mainStepdefs.jmapServer
+                .getProbe(MailboxProbeImpl.class)
+                .getMailbox(MailboxConstants.USER_NAMESPACE, userStepdefs.lastConnectedUser, name)
+                .getMailboxId()
+                .serialize()))
+            .distinct()
+            .collect(Guavate.toImmutableList());
+
+        assertThat(jsonPath.<JSONArray>read(FIRST_MESSAGE + ".mailboxIds"))
+            .hasSize(2)
+            .containsOnlyElementsOf(values);
     }
 
     @Then("^the threadId of the message is \"([^\"]*)\"$")
     public void assertThreadIdOfTheFirstMessage(String threadId) throws Throwable {
-        assertThat(jsonPath.<String>read(FIRST_MESSAGE + ".threadId")).isEqualTo(threadId);
+        MessageId id = messageIdsByName.get(threadId);
+        assertThat(jsonPath.<String>read(FIRST_MESSAGE + ".threadId")).isEqualTo(id.serialize());
     }
 
     @Then("^the subject of the message is \"([^\"]*)\"$")
@@ -281,7 +397,7 @@ public class GetMessagesMethodStepdefs {
 
     @Then("^the headers of the message contains:$")
     public void assertHeadersOfTheFirstMessage(DataTable headers) throws Throwable {
-        assertThat(jsonPath.<Map<String, String>>read(FIRST_MESSAGE + ".headers")).isEqualTo(headers.asMap(String.class, String.class));
+        assertThat(jsonPath.<Map<String, String>>read(FIRST_MESSAGE + ".headers")).containsAllEntriesOf(headers.asMap(String.class, String.class));
     }
 
     @Then("^the date of the message is \"([^\"]*)\"$")

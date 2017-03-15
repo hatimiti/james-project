@@ -24,38 +24,48 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.apache.james.jmap.model.MailboxCreationId;
+import org.apache.james.jmap.model.MailboxFactory;
 import org.apache.james.jmap.model.SetError;
 import org.apache.james.jmap.model.SetMailboxesRequest;
 import org.apache.james.jmap.model.SetMailboxesResponse;
 import org.apache.james.jmap.model.mailbox.MailboxCreateRequest;
-import org.apache.james.jmap.utils.MailboxUtils;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.SubscriptionManager;
 import org.apache.james.mailbox.exception.MailboxException;
+import org.apache.james.mailbox.inmemory.InMemoryId;
+import org.apache.james.mailbox.inmemory.InMemoryId.Factory;
+import org.apache.james.mailbox.model.MailboxId;
+import org.apache.james.metrics.api.NoopMetricFactory;
 import org.junit.Before;
 import org.junit.Test;
 
 public class SetMailboxesCreationProcessorTest {
 
-    private MailboxUtils mailboxUtils;
+    private Factory mailboxIdFactory;
+    private MailboxFactory mailboxFactory;
     private SetMailboxesCreationProcessor sut;
+    private MailboxManager mailboxManager;
+    private SubscriptionManager subscriptionManager;
 
     @Before
     public void setup() {
-        mailboxUtils = mock(MailboxUtils.class);
-        sut = new SetMailboxesCreationProcessor(mock(MailboxManager.class), mailboxUtils);
+        mailboxManager = mock(MailboxManager.class);
+        mailboxIdFactory = new InMemoryId.Factory();
+        sut = new SetMailboxesCreationProcessor(mailboxManager, subscriptionManager, mailboxFactory, mailboxIdFactory, new NoopMetricFactory());
     }
 
     @Test
     public void processShouldReturnNotCreatedWhenMailboxExceptionOccured() throws Exception {
-        String parentId = "parentId";
+        MailboxCreationId parentId = MailboxCreationId.of("0");
+        MailboxId parentMailboxId = mailboxIdFactory.fromString(parentId.getCreationId());
         MailboxCreationId mailboxCreationId = MailboxCreationId.of("1");
         SetMailboxesRequest request = SetMailboxesRequest.builder()
                 .create(mailboxCreationId, MailboxCreateRequest.builder().name("name").parentId(parentId).build())
                 .build();
 
         MailboxSession mailboxSession = mock(MailboxSession.class);
-        when(mailboxUtils.getMailboxNameFromId(parentId, mailboxSession))
+        when(mailboxManager.getMailbox(parentMailboxId, mailboxSession))
             .thenThrow(new MailboxException());
 
         SetMailboxesResponse setMailboxesResponse = sut.process(request, mailboxSession);

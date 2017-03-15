@@ -19,26 +19,33 @@
 
 package org.apache.james.jmap.memory;
 
+import java.util.Random;
+
 import org.apache.james.GuiceJamesServer;
-import org.apache.james.MemoryJamesServerMain;
+import org.apache.james.MemoryJmapTestRule;
 import org.apache.james.jmap.methods.integration.SetMessagesMethodTest;
-import org.apache.james.jmap.servers.MemoryJmapServerModule;
+import org.apache.james.mailbox.inmemory.InMemoryMessageId;
+import org.apache.james.mailbox.model.MessageId;
 import org.junit.Rule;
-import org.junit.rules.TemporaryFolder;
 
 public class MemorySetMessagesMethodTest extends SetMessagesMethodTest {
 
     @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    public MemoryJmapTestRule memoryJmap = new MemoryJmapTestRule();
 
+    private Random random = new Random();
+    
     @Override
     protected GuiceJamesServer createJmapServer() {
-        return new GuiceJamesServer()
-                    .combineWith(MemoryJamesServerMain.inMemoryServerModule)
-                    .overrideWith(new MemoryJmapServerModule(temporaryFolder));
+        return memoryJmap.jmapServer();
     }
     
     @Override
     protected void await() {
+    }
+    
+    @Override
+    protected MessageId randomMessageId() {
+        return new InMemoryMessageId.Factory().fromString(String.valueOf(random.nextInt(100000) + 100));
     }
 }

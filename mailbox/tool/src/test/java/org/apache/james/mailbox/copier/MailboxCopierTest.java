@@ -35,9 +35,12 @@ import org.apache.james.mailbox.exception.BadCredentialsException;
 import org.apache.james.mailbox.exception.MailboxException;
 import org.apache.james.mailbox.inmemory.InMemoryMailboxSessionMapperFactory;
 import org.apache.james.mailbox.mock.MockMailboxManager;
+import org.apache.james.mailbox.model.MailboxConstants;
 import org.apache.james.mailbox.model.MailboxPath;
 import org.apache.james.mailbox.store.Authenticator;
+import org.apache.james.mailbox.store.Authorizator;
 import org.apache.james.mailbox.store.StoreMailboxManager;
+import org.apache.james.mailbox.store.mail.model.DefaultMessageId;
 import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
 import org.junit.Before;
 import org.junit.Test;
@@ -164,9 +167,18 @@ public class MailboxCopierTest {
                     return true;
                 }
             },
+            new Authorizator() {
+                @Override
+                public AuthorizationState canLoginAsOtherUser(String userId, String otherUserId) {
+                    return AuthorizationState.NOT_ADMIN;
+                }
+            },
             aclResolver,
             groupMembershipResolver,
-            messageParser
+            messageParser,
+            new DefaultMessageId.Factory(),
+            MailboxConstants.DEFAULT_LIMIT_ANNOTATIONS_ON_MAILBOX,
+            MailboxConstants.DEFAULT_LIMIT_ANNOTATION_SIZE
             );
     
     }

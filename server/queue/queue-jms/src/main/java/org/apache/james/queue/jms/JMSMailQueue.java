@@ -49,6 +49,10 @@ import javax.mail.internet.MimeMessage;
 
 import org.apache.james.core.MailImpl;
 import org.apache.james.core.MimeMessageCopyOnWriteProxy;
+import org.apache.james.lifecycle.api.Disposable;
+import org.apache.james.metrics.api.Metric;
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.TimeMetric;
 import org.apache.james.queue.api.MailPrioritySupport;
 import org.apache.james.queue.api.MailQueue;
 import org.apache.james.queue.api.MailQueueItemDecoratorFactory;
@@ -56,6 +60,8 @@ import org.apache.james.queue.api.ManageableMailQueue;
 import org.apache.mailet.Mail;
 import org.apache.mailet.MailAddress;
 import org.slf4j.Logger;
+
+import com.google.common.base.Throwables;
 
 /**
  * <p>
@@ -68,18 +74,27 @@ import org.slf4j.Logger;
  * {@link Mail} objects.
  * </p>
  */
-public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPrioritySupport {
+public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPrioritySupport, Disposable {
 
     protected final String queueName;
-    protected final ConnectionFactory connectionFactory;
+    protected final Connection connection;
     protected final MailQueueItemDecoratorFactory mailQueueItemDecoratorFactory;
+    protected final Metric enqueuedMailsMetric;
+    protected final MetricFactory metricFactory;
     protected final Logger logger;
     public final static String FORCE_DELIVERY = "FORCE_DELIVERY";
 
-    public JMSMailQueue(ConnectionFactory connectionFactory, MailQueueItemDecoratorFactory mailQueueItemDecoratorFactory, String queueName, Logger logger) {
-        this.connectionFactory = connectionFactory;
+    public JMSMailQueue(ConnectionFactory connectionFactory, MailQueueItemDecoratorFactory mailQueueItemDecoratorFactory, String queueName, MetricFactory metricFactory, Logger logger) {
+        try {
+            connection = connectionFactory.createConnection();
+            connection.start();
+        } catch (JMSException e) {
+            throw Throwables.propagate(e);
+        }
         this.mailQueueItemDecoratorFactory = mailQueueItemDecoratorFactory;
         this.queueName = queueName;
+        this.metricFactory = metricFactory;
+        this.enqueuedMailsMetric = metricFactory.generate("enqueuedMail:" + queueName);
         this.logger = logger;
     }
 
@@ -97,16 +112,13 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
      */
     @Override
     public MailQueueItem deQueue() throws MailQueueException {
-        Connection connection = null;
         Session session = null;
         Message message;
         MessageConsumer consumer = null;
 
         while (true) {
+            TimeMetric timeMetric = metricFactory.timer("dequeueTime:" + queueName);
             try {
-                connection = connectionFactory.createConnection();
-                connection.start();
-
                 session = connection.createSession(true, Session.SESSION_TRANSACTED);
                 Queue queue = session.createQueue(queueName);
                 consumer = session.createConsumer(queue, getMessageSelector());
@@ -129,13 +141,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
                     try {
                         if (session != null)
                             session.close();
-                    } catch (JMSException e1) {
-                        // ignore here
-                    }
-
-                    try {
-                        if (connection != null)
-                            connection.close();
                     } catch (JMSException e1) {
                         // ignore here
                     }
@@ -165,13 +170,9 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
                     // ignore here
                 }
 
-                try {
-                    if (connection != null)
-                        connection.close();
-                } catch (JMSException e1) {
-                    // ignore here
-                }
                 throw new MailQueueException("Unable to dequeue next message", e);
+            } finally {
+                timeMetric.stopAndPublish();
             }
         }
 
@@ -179,7 +180,7 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
 
     @Override
     public void enQueue(Mail mail, long delay, TimeUnit unit) throws MailQueueException {
-        Connection connection = null;
+        TimeMetric timeMetric = metricFactory.timer("enqueueMailTime:" + queueName);
         Session session = null;
 
         long mydelay = 0;
@@ -190,8 +191,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
 
         try {
 
-            connection = connectionFactory.createConnection();
-            connection.start();
             session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
 
             int msgPrio = NORMAL_PRIORITY;
@@ -204,6 +203,7 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
 
             produceMail(session, props, msgPrio, mail);
 
+            enqueuedMailsMetric.increment();
         } catch (Exception e) {
             if (session != null) {
                 try {
@@ -215,16 +215,10 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
             throw new MailQueueException("Unable to enqueue mail " + mail, e);
 
         } finally {
+            timeMetric.stopAndPublish();
             try {
                 if (session != null)
                     session.close();
-            } catch (JMSException e) {
-                // ignore here
-            }
-
-            try {
-                if (connection != null)
-                    connection.close();
             } catch (JMSException e) {
                 // ignore here
             }
@@ -487,13 +481,10 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
     @SuppressWarnings("unchecked")
     @Override
     public long getSize() throws MailQueueException {
-        Connection connection = null;
         Session session = null;
         QueueBrowser browser = null;
         int size = 0;
         try {
-            connection = connectionFactory.createConnection();
-            connection.start();
             session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
             Queue queue = session.createQueue(queueName);
 
@@ -524,18 +515,11 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
                 // ignore here
             }
 
-            try {
-                if (connection != null)
-                    connection.close();
-            } catch (JMSException e1) {
-                // ignore here
-            }
         }
     }
 
     @Override
     public long flush() throws MailQueueException {
-        Connection connection = null;
         Session session = null;
         Message message = null;
         MessageConsumer consumer = null;
@@ -543,8 +527,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
         boolean first = true;
         long count = 0;
         try {
-            connection = connectionFactory.createConnection();
-            connection.start();
 
             session = connection.createSession(true, Session.SESSION_TRANSACTED);
             Queue queue = session.createQueue(queueName);
@@ -602,12 +584,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
                 // ignore here
             }
 
-            try {
-                if (connection != null)
-                    connection.close();
-            } catch (JMSException e1) {
-                // ignore here
-            }
         }
     }
 
@@ -631,7 +607,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
      * @return messages
      */
     public List<Message> removeWithSelector(String selector) throws MailQueueException {
-        Connection connection = null;
         Session session = null;
         Message message = null;
         MessageConsumer consumer = null;
@@ -639,9 +614,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
         List<Message> messages = new ArrayList<Message>();
 
         try {
-            connection = connectionFactory.createConnection();
-            connection.start();
-
             session = connection.createSession(true, Session.SESSION_TRANSACTED);
             Queue queue = session.createQueue(queueName);
             consumer = session.createConsumer(queue, selector);
@@ -684,12 +656,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
                 // ignore here
             }
 
-            try {
-                if (connection != null)
-                    connection.close();
-            } catch (JMSException e1) {
-                // ignore here
-            }
         }
     }
 
@@ -734,12 +700,9 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
     @Override
     @SuppressWarnings("unchecked")
     public MailQueueIterator browse() throws MailQueueException {
-        Connection connection = null;
         Session session = null;
         QueueBrowser browser = null;
         try {
-            connection = connectionFactory.createConnection();
-            connection.start();
             session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
             Queue queue = session.createQueue(queueName);
 
@@ -747,7 +710,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
 
             final Enumeration<Message> messages = browser.getEnumeration();
 
-            final Connection myConnection = connection;
             final Session mySession = session;
             final QueueBrowser myBrowser = browser;
 
@@ -809,12 +771,6 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
                         // ignore here
                     }
 
-                    try {
-                        if (myConnection != null)
-                            myConnection.close();
-                    } catch (JMSException e1) {
-                        // ignore here
-                    }
                 }
             };
 
@@ -834,15 +790,17 @@ public class JMSMailQueue implements ManageableMailQueue, JMSSupport, MailPriori
                 // ignore here
             }
 
-            try {
-                if (connection != null)
-                    connection.close();
-            } catch (JMSException e1) {
-                // ignore here
-            }
             logger.error("Unable to browse queue " + queueName, e);
             throw new MailQueueException("Unable to browse queue " + queueName, e);
         }
     }
 
+    @Override
+    public void dispose() {
+        try {
+            connection.close();
+        } catch (JMSException e) {
+        }
+    }
+    
 }

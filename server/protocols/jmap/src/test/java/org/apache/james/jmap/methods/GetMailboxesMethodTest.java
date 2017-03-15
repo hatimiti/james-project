@@ -34,24 +34,20 @@ import javax.mail.Flags;
 import org.apache.james.jmap.model.ClientId;
 import org.apache.james.jmap.model.GetMailboxesRequest;
 import org.apache.james.jmap.model.GetMailboxesResponse;
+import org.apache.james.jmap.model.MailboxFactory;
 import org.apache.james.jmap.model.mailbox.Mailbox;
 import org.apache.james.jmap.model.mailbox.Role;
 import org.apache.james.jmap.model.mailbox.SortOrder;
-import org.apache.james.jmap.utils.MailboxUtils;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
 import org.apache.james.mailbox.MessageManager;
 import org.apache.james.mailbox.acl.GroupMembershipResolver;
-import org.apache.james.mailbox.acl.MailboxACLResolver;
-import org.apache.james.mailbox.acl.SimpleGroupMembershipResolver;
-import org.apache.james.mailbox.acl.UnionMailboxACLResolver;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.inmemory.InMemoryMailboxSessionMapperFactory;
+import org.apache.james.mailbox.inmemory.InMemoryId;
+import org.apache.james.mailbox.inmemory.manager.InMemoryIntegrationResources;
+import org.apache.james.mailbox.mock.MockMailboxSession;
 import org.apache.james.mailbox.model.MailboxPath;
-import org.apache.james.mailbox.store.MockAuthenticator;
-import org.apache.james.mailbox.store.SimpleMailboxSession;
-import org.apache.james.mailbox.store.StoreMailboxManager;
-import org.apache.james.mailbox.store.mail.model.impl.MessageParser;
+import org.apache.james.metrics.logger.DefaultMetricFactory;
 import org.assertj.core.groups.Tuple;
 import org.junit.Before;
 import org.junit.Test;
@@ -66,24 +62,20 @@ public class GetMailboxesMethodTest {
     private static final String USERNAME = "username@domain.tld";
     private static final String USERNAME2 = "username2@domain.tld";
 
-    private StoreMailboxManager mailboxManager;
+    private MailboxManager mailboxManager;
     private GetMailboxesMethod getMailboxesMethod;
     private ClientId clientId;
-    private InMemoryMailboxSessionMapperFactory mailboxMapperFactory;
-    private MailboxUtils mailboxUtils;
+    private MailboxFactory mailboxFactory;
 
     @Before
     public void setup() throws Exception {
         clientId = ClientId.of("#0");
-        mailboxMapperFactory = new InMemoryMailboxSessionMapperFactory();
-        MailboxACLResolver aclResolver = new UnionMailboxACLResolver();
-        GroupMembershipResolver groupMembershipResolver = new SimpleGroupMembershipResolver();
-        MessageParser messageParser = new MessageParser();
-        mailboxManager = new StoreMailboxManager(mailboxMapperFactory, new MockAuthenticator(), aclResolver, groupMembershipResolver, messageParser);
-        mailboxManager.init();
-        mailboxUtils = new MailboxUtils(mailboxManager, mailboxMapperFactory);
+        InMemoryIntegrationResources inMemoryIntegrationResources = new InMemoryIntegrationResources();
+        GroupMembershipResolver groupMembershipResolver = inMemoryIntegrationResources.createGroupMembershipResolver();
+        mailboxManager = inMemoryIntegrationResources.createMailboxManager(groupMembershipResolver);
+        mailboxFactory = new MailboxFactory(mailboxManager);
 
-        getMailboxesMethod = new GetMailboxesMethod(mailboxManager, mailboxUtils);
+        getMailboxesMethod = new GetMailboxesMethod(mailboxManager, mailboxFactory, new DefaultMetricFactory());
     }
 
     @Test
@@ -109,13 +101,13 @@ public class GetMailboxesMethodTest {
         MailboxManager mockedMailboxManager = mock(MailboxManager.class);
         when(mockedMailboxManager.list(any()))
             .thenReturn(ImmutableList.of(new MailboxPath("namespace", "user", "name")));
-        when(mockedMailboxManager.getMailbox(any(), any()))
+        when(mockedMailboxManager.getMailbox(any(MailboxPath.class), any()))
             .thenThrow(new MailboxException());
-        GetMailboxesMethod testee = new GetMailboxesMethod(mockedMailboxManager, mailboxUtils);
+        GetMailboxesMethod testee = new GetMailboxesMethod(mockedMailboxManager, mailboxFactory, new DefaultMetricFactory());
         
         GetMailboxesRequest getMailboxesRequest = GetMailboxesRequest.builder()
                 .build();
-        MailboxSession session = new SimpleMailboxSession(0, USERNAME, "", null, null, '.', null);
+        MailboxSession session = new MockMailboxSession(USERNAME);
         
         List<JmapResponse> getMailboxesResponse = testee.process(getMailboxesRequest, clientId, session).collect(Collectors.toList());
         
@@ -149,7 +141,7 @@ public class GetMailboxesMethodTest {
                 .extracting(GetMailboxesResponse.class::cast)
                 .flatExtracting(GetMailboxesResponse::getList)
                 .extracting(Mailbox::getId, Mailbox::getName, Mailbox::getUnreadMessages)
-                .containsOnly(Tuple.tuple("1", mailboxPath.getName(), 2L));
+                .containsOnly(Tuple.tuple(InMemoryId.of(1), mailboxPath.getName(), 2L));
     }
 
     @Test
@@ -173,7 +165,7 @@ public class GetMailboxesMethodTest {
                 .extracting(GetMailboxesResponse.class::cast)
                 .flatExtracting(GetMailboxesResponse::getList)
                 .extracting(Mailbox::getId, Mailbox::getName)
-                .containsOnly(Tuple.tuple("1", mailboxPathToReturn.getName()));
+                .containsOnly(Tuple.tuple(InMemoryId.of(1), mailboxPathToReturn.getName()));
     }
 
     @Test

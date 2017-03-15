@@ -17,17 +17,14 @@
     specific language governing permissions and limitations
     under the License.
 -->
-<project
-        xmlns="http://maven.apache.org/POM/4.0.0"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
         <artifactId>apache-james-mpt</artifactId>
         <groupId>org.apache.james</groupId>
-        <version>0.2-SNAPSHOT</version>
+        <version>3.0.0-beta6-SNAPSHOT</version>
         <relativePath>../..</relativePath>
     </parent>
 
@@ -46,6 +43,7 @@
         <module>jcr</module>
         <module>jpa</module>
         <module>maildir</module>
+        <module>lucenesearch</module>
     </modules>
     
     <dependencyManagement>
@@ -104,6 +102,12 @@
                 <version>${project.version}</version>
                 <scope>test</scope>
             </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>apache-james-mpt-imapmailbox-jpa-lucene</artifactId>
+                <version>${project.version}</version>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -116,6 +120,7 @@
         <maildir.includes>empty</maildir.includes>
         <cyrus.includes>empty</cyrus.includes>
         <elasticsearch.includes>empty</elasticsearch.includes>
+        <jpa-lucene.includes>empty</jpa-lucene.includes>
     </properties>
 
     <profiles>
@@ -150,6 +155,12 @@
             </properties>
         </profile>
         <profile>
+            <id>jpa-lucene</id>
+            <properties>
+                <jpa-lucene.includes>**/lucenesearch/**/*.java</jpa-lucene.includes>
+            </properties>
+        </profile>
+        <profile>
             <id>maildir</id>
             <properties>
                 <maildir.includes>**/maildir/**/*.java</maildir.includes>
@@ -181,7 +192,8 @@
                            <exclude>**/suite/**/*.java</exclude>
                        </excludes>
                        <includes>
-                           <include>${cassandra.includes}, ${hbase.includes}, ${inmemory.includes}, ${jcr.includes}, ${jpa.includes}, ${maildir.includes}, ${cyrus.includes}, ${elasticsearch.includes}</include>
+                           <include>${cassandra.includes}, ${hbase.includes}, ${inmemory.includes}, ${jcr.includes}, ${jpa.includes}, ${maildir.includes}, ${cyrus.includes}, 
+${elasticsearch.includes}, ${jpa-lucene.includes}</include>
                        </includes>
                     </configuration>
                 </plugin>

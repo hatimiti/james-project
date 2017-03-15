@@ -21,10 +21,17 @@ package org.apache.james.jmap.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import org.apache.james.metrics.api.MetricFactory;
+import org.apache.james.metrics.api.NoopMetricFactory;
+import org.mockito.Mockito;
 
 import java.util.Optional;
 
+import org.apache.james.jmap.model.MailboxFactory;
 import org.apache.james.jmap.model.SetError;
 import org.apache.james.jmap.model.SetMailboxesRequest;
 import org.apache.james.jmap.model.SetMailboxesResponse;
@@ -33,40 +40,55 @@ import org.apache.james.jmap.model.mailbox.MailboxUpdateRequest;
 import org.apache.james.jmap.utils.MailboxUtils;
 import org.apache.james.mailbox.MailboxManager;
 import org.apache.james.mailbox.MailboxSession;
+import org.apache.james.mailbox.MessageManager;
+import org.apache.james.mailbox.SubscriptionManager;
 import org.apache.james.mailbox.exception.MailboxException;
-import org.apache.james.mailbox.model.MailboxPath;
+import org.apache.james.mailbox.inmemory.InMemoryId;
 import org.junit.Before;
 import org.junit.Test;
 
 public class SetMailboxesUpdateProcessorTest {
 
     private MailboxManager mockedMailboxManager;
+    private SubscriptionManager mockSubscriptionManager;
     private MailboxUtils mockedMailboxUtils;
+    private MailboxFactory mockedMailboxFactory;
     private MailboxSession mockedMailboxSession;
     private SetMailboxesUpdateProcessor sut;
 
     @Before
     public void setup() {
         mockedMailboxManager = mock(MailboxManager.class);
+        mockSubscriptionManager = mock(SubscriptionManager.class);
         mockedMailboxUtils = mock(MailboxUtils.class);
+        mockedMailboxFactory = mock(MailboxFactory.class);
         mockedMailboxSession = mock(MailboxSession.class);
-        sut = new SetMailboxesUpdateProcessor(mockedMailboxUtils, mockedMailboxManager);
+        MetricFactory metricFactory = new NoopMetricFactory();
+        sut = new SetMailboxesUpdateProcessor(mockedMailboxUtils, mockedMailboxManager, mockSubscriptionManager, mockedMailboxFactory, metricFactory);
     }
 
     @Test
     public void processShouldReturnNotUpdatedWhenMailboxExceptionOccured() throws Exception {
         // Given
-        String mailboxId = "1";
-        String newParentId = "newParentId";
-        MailboxPath newParentMailboxPath = new MailboxPath("#private", "user", "newParentName");
+        InMemoryId mailboxId = InMemoryId.of(1);
+        InMemoryId newParentId = InMemoryId.of(2);
         SetMailboxesRequest request = SetMailboxesRequest.builder()
                 .update(mailboxId, MailboxUpdateRequest.builder().parentId(newParentId).build())
                 .build();
         Mailbox mailbox = Mailbox.builder().id(mailboxId).name("name").role(Optional.empty()).build();
-        when(mockedMailboxUtils.mailboxFromMailboxId(mailboxId, mockedMailboxSession))
+
+        MailboxFactory.MailboxBuilder mockBuilder = mock(MailboxFactory.MailboxBuilder.class);
+        when(mockBuilder.id(mailboxId))
+            .thenReturn(mockBuilder);
+        when(mockBuilder.session(mockedMailboxSession))
+            .thenReturn(mockBuilder);
+        when(mockBuilder.build())
             .thenReturn(Optional.of(mailbox));
-        when(mockedMailboxUtils.mailboxPathFromMailboxId(newParentId, mockedMailboxSession))
-            .thenReturn(Optional.of(newParentMailboxPath));
+
+        when(mockedMailboxFactory.builder())
+            .thenReturn(mockBuilder);
+        when(mockedMailboxManager.getMailbox(newParentId, mockedMailboxSession))
+            .thenReturn(mock(MessageManager.class));
         when(mockedMailboxUtils.hasChildren(mailboxId, mockedMailboxSession))
             .thenThrow(new MailboxException());
 
@@ -74,6 +96,8 @@ public class SetMailboxesUpdateProcessorTest {
         SetMailboxesResponse setMailboxesResponse = sut.process(request, mockedMailboxSession);
 
         // Then
+        verify(mockBuilder, times(1)).id(Mockito.eq(mailboxId));
+        verify(mockBuilder, times(1)).session(Mockito.eq(mockedMailboxSession));
         assertThat(setMailboxesResponse.getUpdated()).isEmpty();
         assertThat(setMailboxesResponse.getNotUpdated()).containsEntry(mailboxId, SetError.builder().type("anErrorOccurred").description("An error occurred when updating the mailbox").build());
     }
